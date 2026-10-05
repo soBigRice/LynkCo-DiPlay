@@ -68,8 +68,12 @@ class IphoneUsbHost(
     private val usbManager: UsbManager,
     private val matcher: IphoneUsbMatcher,
     private val permissionAction: String = "${context.packageName}.IPHONE_USB_PERMISSION",
+    private val onDiagnostic: (String) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
+    private val verifyConfiguration = appContext.resources.getBoolean(
+        com.shilapi.xcertplay.shared.R.bool.config_verified_usb_configuration,
+    )
 
     sealed class PermissionRequest {
         data class AlreadyGranted(val device: UsbDevice) : PermissionRequest()
@@ -238,16 +242,31 @@ class IphoneUsbHost(
         val connection = usbManager.openDevice(device)
             ?: throw IphoneUsbException.DeviceUnavailable("UsbManager could not open the iPhone")
         var claimedInterface: UsbInterface? = null
+        val recovery = if (verifyConfiguration && appContext.resources.getBoolean(
+                com.shilapi.xcertplay.shared.R.bool.config_release_iphone_usb_drivers)) {
+            UsbDriverRecovery({ usbManager.openDevice(device)?.let(::AndroidUsbRecoveryAccess) }, onDiagnostic)
+        } else null
         try {
-            val configuration = IphoneCarPlayConfiguration.find(device)
+            val preferred = IphoneCarPlayConfiguration.find(device)
                 ?: throw IphoneUsbException.Protocol(
                     "Re-enumerated iPhone exposes no USBMUX CarPlay configuration",
                 )
-            if (!connection.setConfiguration(configuration)) {
-                Log.w(
-                    IphoneCarPlayConfiguration.TAG,
-                    "setConfiguration ${configuration.id} reported failure; claiming anyway",
-                )
+            val configuration = if (verifyConfiguration) {
+                IphoneUsbConfiguration.select(connection, device, preferred, onDiagnostic,
+                    recoverBusy = recovery?.let { owner -> { original, target ->
+                        owner.switch(original.id, target.id, (0 until original.interfaceCount).map {
+                            val intf = original.getInterface(it)
+                            UsbDriverRecovery.Interface(intf.id, intf.interfaceClass)
+                        })
+                    } })
+            } else {
+                if (!connection.setConfiguration(preferred)) {
+                    Log.w(
+                        IphoneCarPlayConfiguration.TAG,
+                        "setConfiguration ${preferred.id} reported failure; claiming anyway",
+                    )
+                }
+                preferred
             }
             val usbMux = IphoneCarPlayConfiguration.usbMuxInterface(configuration)
                 ?: throw IphoneUsbException.Protocol("CarPlay configuration exposes no USBMUX interface")
@@ -261,14 +280,17 @@ class IphoneUsbHost(
                     "out=${describeUsbEndpoint(endpoints.first)} " +
                     "in=${describeUsbEndpoint(endpoints.second)}",
             )
-            if (!connection.claimInterface(usbMux, true)) {
-                throw IphoneUsbException.DeviceUnavailable("Android could not claim USBMUX interface 1")
+            val claimed = connection.claimInterface(usbMux, true)
+            onDiagnostic("USB USBMUX claim config=${configuration.id} iface=${usbMux.id} result=$claimed")
+            if (!claimed) {
+                throw IphoneUsbException.DeviceUnavailable("Android could not claim USBMUX interface ${usbMux.id}")
             }
             claimedInterface = usbMux
-            return Iap2UsbSession(connection, endpoints.first, endpoints.second)
+            return Iap2UsbSession(connection, endpoints.first, endpoints.second, configuration, recovery)
         } catch (error: Throwable) {
             if (claimedInterface != null) connection.releaseInterface(claimedInterface)
-            connection.close()
+            try { connection.close() } finally { recovery?.close() }
+            if (error is LinkageError) throw IphoneUsbException.DeviceUnavailable("USB driver handoff unavailable", error)
             throw error
         }
     }
@@ -330,6 +352,8 @@ class Iap2UsbSession internal constructor(
     private val connection: UsbDeviceConnection,
     private val outEndpoint: UsbEndpoint,
     private val inEndpoint: UsbEndpoint,
+    val configuration: UsbConfiguration? = null,
+    private val configurationRecovery: UsbDriverRecovery? = null,
 ) : Closeable {
     private val stateLock = Any()
     private val readLock = Any()
@@ -337,6 +361,11 @@ class Iap2UsbSession internal constructor(
     private var closed = false
     private var failure: IphoneUsbException? = null
     private var pendingRead: UsbRequest? = null
+
+    internal fun retainConfigurationRecovery(): Closeable? = synchronized(stateLock) {
+        checkOpenLocked()
+        configurationRecovery?.retain()
+    }
 
     fun write(data: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
         checkOpen()
@@ -408,8 +437,11 @@ class Iap2UsbSession internal constructor(
             closed = true
             pendingRead
         }
-        requestToCancel?.cancel()
-        connection.close()
+        try {
+            requestToCancel?.cancel()
+        } finally {
+            try { connection.close() } finally { configurationRecovery?.close() }
+        }
     }
 
     private fun checkOpen() {

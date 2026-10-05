@@ -1,0 +1,26 @@
+<resources>
+    <string name="lynk_upstream_credit">基于 DiPlay 修改 · 领克适配版</string>
+    <string name="lynk_upstream_description">本应用基于 shihabal3amri/DiPlay 开源项目修改，针对领克 OS N 2.0（Android 9）适配，调整了连接流程、界面与诊断功能。\n\n原项目作者：shihabal3amri。感谢 DiPlay 及其依赖项目的贡献者。本版本为独立修改版，并非 DiPlay 上游官方发布。</string>
+    <string name="lynk_upstream_project">DiPlay 原项目 · GitHub</string>
+    <string name="lynk_upstream_notices">上游开源与许可声明</string>
+    <string name="lynk_upstream_no_browser">车机没有可用浏览器，可在手机打开：%1$s</string>
+    <string name="lynk_connection">连接</string>
+    <string name="lynk_home">首页</string>
+    <string name="lynk_panel_subtitle">手机互联</string>
+    <string name="lynk_home_description">音乐、导航与通话。\n在车内继续。</string>
+    <string name="lynk_connection_methods">选择连接方式</string>
+    <string name="lynk_wireless">无线连接</string>
+    <string name="lynk_wired">有线连接</string>
+    <string name="lynk_status">连接状态</string>
+    <string name="lynk_general">常用</string>
+    <string name="lynk_display">画面</string>
+    <string name="lynk_audio">声音</string>
+    <string name="lynk_support">帮助</string>
+    <string name="lynk_export_short">导出日志</string>
+    <string name="lynk_export_copy">有线与无线记录，保存为同一个文件。</string>
+    <string name="lynk_hotspot_intro">配置一次，下次连接自动记住。</string>
+    <string name="lynk_hotspot_step">01 / 车机热点</string>
+    <string name="lynk_phone_step">02 / 配对 iPhone</string>
+    <string name="lynk_progress_label">CARPLAY 连接</string>
+    <string name="lynk_settings_copy">按类别调整，保留你习惯的设置。</string>
+</resources>

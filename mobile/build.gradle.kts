@@ -1,3 +1,5 @@
+import com.android.build.api.variant.HostTestBuilder
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -17,7 +19,7 @@ android {
         applicationId = "com.shihab.diplay"
         minSdk = 28
         targetSdk = 37
-        versionCode = 29
+        versionCode = 31
         versionName = "0.2.10"
 
     }
@@ -42,6 +44,12 @@ android {
             applicationIdSuffix = ".hudtest"
             versionNameSuffix = "-hud-test"
         }
+        create("lynkDebug") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".lynk"
+            versionNameSuffix = "-lynk-osn2-test13a"
+            matchingFallbacks += "debug"
+        }
         release {
             optimization {
                 enable = false
@@ -56,6 +64,14 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+// AGP 9 enables host tests only for its tested build type by default.
+androidComponents.beforeVariants(androidComponents.selector().withBuildType("lynkDebug")) {
+    it.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
 }
 
 dependencies {
@@ -71,6 +87,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.17")
 }
 
 // No implicit import. Only the two explicitly selected local runtime assets are allowed.
@@ -117,4 +135,9 @@ tasks.register("assembleStandaloneDebug") {
     group = "build"
     description = "Build a standalone car-test APK with explicitly provisioned authentication."
     dependsOn(verifyStandaloneAuthentication, "assembleDebug")
+}
+tasks.register("assembleLynkStandaloneDebug") {
+    group = "build"
+    description = "Build the LYNK OS N car-test APK with explicitly provisioned authentication."
+    dependsOn(verifyStandaloneAuthentication, "assembleLynkDebug")
 }

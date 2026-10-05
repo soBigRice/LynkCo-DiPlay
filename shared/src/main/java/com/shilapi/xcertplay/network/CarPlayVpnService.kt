@@ -86,13 +86,7 @@ class CarPlayVpnService : VpnService() {
             }
             require(hostMac.size == 6) { "hostMac must be 6 bytes" }
 
-            val tunFd = Builder()
-                .addAddress(linkLocal, LINK_PREFIX)
-                .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
-                .setSession(SESSION_NAME)
-                .setMtu(TUN_MTU)
-                .setBlocking(true)
-                .establish()
+            val tunFd = tunnelBuilder(address).establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
 
@@ -156,6 +150,16 @@ class CarPlayVpnService : VpnService() {
     /** Port the AirPlay listener actually bound, which may differ from the configured port. */
     fun boundPort(): Int? = attachment?.config?.port
 
+    internal fun tunnelBuilder(linkLocal: InetAddress): Builder = Builder()
+        .addAddress(linkLocal, LINK_PREFIX)
+        .addRoute(InetAddress.getByName(LINK_LOCAL_ROUTE), LINK_PREFIX)
+        // This tunnel carries only CarPlay's IPv6 local link, not internet access. Android
+        // otherwise blocks all IPv4 on the head unit because this VPN has no IPv4 address.
+        .allowFamily(android.system.OsConstants.AF_INET)
+        .setSession(SESSION_NAME)
+        .setMtu(TUN_MTU)
+        .setBlocking(true)
+
     override fun onDestroy() {
         detach()
         super.onDestroy()
@@ -191,7 +195,7 @@ class CarPlayVpnService : VpnService() {
                 socket.keepAlive = true
                 socket.setSoLinger(true, 0)
                 val session = synchronized(this) {
-                    if (!active.get()) {
+                    if (!active.get() || generation != attachGeneration || serverSocket !== server) {
                         socket.close()
                         return
                     }
@@ -199,6 +203,16 @@ class CarPlayVpnService : VpnService() {
                     if (current == null) {
                         socket.close()
                         return
+                    }
+                    // A TCP arrival is distinct from a completed AirPlay session. Keep it in
+                    // exported diagnostics without including the phone address or payload.
+                    try {
+                        current.listener.onDebugLog(
+                            "CONNECTION_DIAGNOSTIC AirPlay TCP accepted " +
+                                "family=${if (socket.inetAddress.address.size == 4) "IPv4" else "IPv6"}",
+                        )
+                    } catch (error: Exception) {
+                        Log.w(TAG, "TCP diagnostic callback failed", error)
                     }
                     AirPlaySession(
                         socket = socket,

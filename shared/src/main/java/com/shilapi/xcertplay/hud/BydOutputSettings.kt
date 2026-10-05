@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
+import com.shilapi.xcertplay.shared.R
 import com.shilapi.xcertplay.transport.EvChargingConnectors
 
 /**
@@ -20,18 +21,21 @@ object BydOutputSettings {
     const val DEFAULT_LOW_CHARGE_PERCENT = 20
     val lowChargePresets = listOf(10, 15, 20, 25, 30)
 
-    fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, true)
+    fun integrationAllowed(context: Context): Boolean =
+        context.resources.getBoolean(R.bool.config_byd_integration)
+
+    fun enabled(context: Context): Boolean = integrationAllowed(context) && prefs(context).getBoolean(KEY_ENABLED, true)
 
     fun setEnabled(context: Context, enabled: Boolean) = prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
 
     /** Ask the iPhone to stop drawing the cluster map while the cluster hides it (needs ADB over network). */
-    fun clusterStreamPause(context: Context): Boolean = prefs(context).getBoolean(KEY_CLUSTER_STREAM_PAUSE, false)
+    fun clusterStreamPause(context: Context): Boolean = integrationAllowed(context) && prefs(context).getBoolean(KEY_CLUSTER_STREAM_PAUSE, false)
 
     fun setClusterStreamPause(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CLUSTER_STREAM_PAUSE, enabled).apply()
 
     /** Tell the iPhone the car's charge and range (needs ADB over network); applies on the next connection. */
-    fun batteryToIphone(context: Context): Boolean = prefs(context).getBoolean(KEY_BATTERY_TO_IPHONE, false)
+    fun batteryToIphone(context: Context): Boolean = integrationAllowed(context) && prefs(context).getBoolean(KEY_BATTERY_TO_IPHONE, false)
 
     fun setBatteryToIphone(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_BATTERY_TO_IPHONE, enabled).apply()
@@ -46,18 +50,18 @@ object BydOutputSettings {
         prefs(context).edit().putString(KEY_CHARGING_CONNECTORS, connectors.name).apply()
 
     /** Send wheel speed and gear with the car's GPS (needs ADB over network); applies on the next connection. */
-    fun wheelSpeedToIphone(context: Context): Boolean = prefs(context).getBoolean(KEY_WHEEL_SPEED_TO_IPHONE, false)
+    fun wheelSpeedToIphone(context: Context): Boolean = integrationAllowed(context) && prefs(context).getBoolean(KEY_WHEEL_SPEED_TO_IPHONE, false)
 
     fun setWheelSpeedToIphone(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_WHEEL_SPEED_TO_IPHONE, enabled).apply()
     /** Offer iOS 27 video in car, played only while the gear reads P (needs ADB over network). */
-    fun videoWhileParked(context: Context): Boolean = prefs(context).getBoolean(KEY_VIDEO_WHILE_PARKED, false)
+    fun videoWhileParked(context: Context): Boolean = integrationAllowed(context) && prefs(context).getBoolean(KEY_VIDEO_WHILE_PARKED, false)
 
     fun setVideoWhileParked(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_VIDEO_WHILE_PARKED, enabled).apply()
 
     /** Show the CarPlay song in the dashboard's music card (needs ADB over network); applies at once. */
-    fun clusterSong(context: Context): Boolean = prefs(context).getBoolean(KEY_CLUSTER_SONG, false)
+    fun clusterSong(context: Context): Boolean = integrationAllowed(context) && prefs(context).getBoolean(KEY_CLUSTER_SONG, false)
 
     fun setClusterSong(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_CLUSTER_SONG, enabled).apply()
@@ -70,7 +74,8 @@ object BydOutputSettings {
 
     /** Whether the head unit has a BYD navigation receiver, so settings can hide a switch that cannot work. */
     fun available(context: Context): Boolean =
-        BydStandaloneHudOutput.available(context) || installed(context, "com.byd.amapservice") || installed(context, "com.ts.car.someip.service")
+        integrationAllowed(context) && (BydStandaloneHudOutput.available(context) ||
+            installed(context, "com.byd.amapservice") || installed(context, "com.ts.car.someip.service"))
 
     private fun installed(context: Context, pkg: String): Boolean =
         runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess

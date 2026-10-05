@@ -20,6 +20,26 @@ import java.io.File
 
 /** SharedPreferences persistence for the accessory identity and paired controllers. */
 object AirPlayPersistence {
+    private const val KEY_HEAD_UNIT_BLUETOOTH_ADDRESS = "head_unit_bluetooth_address"
+
+    fun loadHeadUnitBluetoothAddress(context: Context): String? =
+        com.shilapi.xcertplay.transport.HeadUnitBluetoothAddress.normalize(
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_HEAD_UNIT_BLUETOOTH_ADDRESS, null))
+
+    /** Blank removes only the optional supplement, restoring automatic identity selection. */
+    fun saveHeadUnitBluetoothAddress(context: Context, value: String) {
+        if (value.isBlank()) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .remove(KEY_HEAD_UNIT_BLUETOOTH_ADDRESS).apply()
+            return
+        }
+        val address = requireNotNull(com.shilapi.xcertplay.transport.HeadUnitBluetoothAddress.normalize(value)) {
+            "A real head unit Bluetooth address is required"
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_HEAD_UNIT_BLUETOOTH_ADDRESS, address).apply()
+    }
+
     /** 0 uses usage-based routing; 1–20 select stream types supported by the head unit. */
     val AUDIO_CHANNELS = 0..20
     private const val PREFS = "xcertplay_airplay"
@@ -243,20 +263,36 @@ object AirPlayPersistence {
 
     fun loadWirelessHotspotMode(context: Context): WirelessHotspotMode {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val automatic = com.shilapi.xcertplay.network.LynkLocalHotspot.supported(context)
+        // One-time adoption of the approved mode; keep manual credentials and later user choices.
+        if (automatic && !prefs.getBoolean("lynk_auto_hotspot_v1", false)) {
+            prefs.edit().putBoolean("lynk_auto_hotspot_v1", true)
+                .putString(KEY_WIRELESS_HOTSPOT_MODE, WirelessHotspotMode.LOCAL_ONLY_HOTSPOT.name).apply()
+        }
         val stored = prefs.getString(KEY_WIRELESS_HOTSPOT_MODE, null)
-        val mode = WirelessHotspotMode.entries.firstOrNull { it.name == stored }
-            ?: WirelessHotspotMode.MANUAL
-        val supported = if (mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT ||
-            (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && mode == WirelessHotspotMode.WIFI_P2P)
-        ) WirelessHotspotMode.MANUAL else mode
+        val supported = peekWirelessHotspotMode(context)
         if (stored != supported.name) saveWirelessHotspotMode(context, supported)
         return supported
     }
 
+    /** Same effective mode as load, but diagnostics must not migrate or persist preferences. */
+    fun peekWirelessHotspotMode(context: Context): WirelessHotspotMode {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val automatic = com.shilapi.xcertplay.network.LynkLocalHotspot.supported(context)
+        if (automatic && !prefs.getBoolean("lynk_auto_hotspot_v1", false)) return WirelessHotspotMode.LOCAL_ONLY_HOTSPOT
+        val stored = prefs.getString(KEY_WIRELESS_HOTSPOT_MODE, null)
+        val mode = WirelessHotspotMode.entries.firstOrNull { it.name == stored } ?: WirelessHotspotMode.MANUAL
+        return if ((!automatic && mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT) ||
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && mode == WirelessHotspotMode.WIFI_P2P)
+        ) WirelessHotspotMode.MANUAL else mode
+    }
+
     fun saveWirelessHotspotMode(context: Context, mode: WirelessHotspotMode) {
-        val supported = if (mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT) WirelessHotspotMode.MANUAL else mode
+        val automatic = com.shilapi.xcertplay.network.LynkLocalHotspot.supported(context)
+        val supported = if (!automatic && mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT) WirelessHotspotMode.MANUAL else mode
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_WIRELESS_HOTSPOT_MODE, supported.name)
+            .also { if (automatic) it.putBoolean("lynk_auto_hotspot_v1", true) }
             .apply()
     }
 
@@ -377,11 +413,13 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadOemLabel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
+    fun loadOemLabel(context: Context): String {
+        val defaultLabel = context.getString(com.shilapi.xcertplay.shared.R.string.config_oem_label)
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_OEM_LABEL, defaultLabel)
             // iOS hides the car icon without a label.
-            .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+            .orEmpty().ifBlank { defaultLabel }
+    }
 
     fun saveOemLabel(context: Context, oemLabel: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -458,7 +496,8 @@ object AirPlayPersistence {
     }
 
     fun loadClusterMapEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MAP, false)
+        com.shilapi.xcertplay.hud.BydOutputSettings.integrationAllowed(context) &&
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MAP, false)
 
     fun saveClusterMapEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CLUSTER_MAP, enabled).apply()

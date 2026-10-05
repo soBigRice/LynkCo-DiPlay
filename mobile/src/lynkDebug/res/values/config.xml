@@ -1,0 +1,10 @@
+<resources>
+    <bool name="config_lynk_local_hotspot">true</bool>
+    <bool name="config_byd_integration">false</bool>
+    <bool name="config_manual_hotspot_strict_interface">true</bool>
+    <bool name="config_manual_hotspot_prefer_ipv4">true</bool>
+    <bool name="config_verified_usb_configuration">true</bool>
+    <bool name="config_release_iphone_usb_drivers">true</bool>
+    <bool name="config_simple_connection_flow">true</bool>
+    <string name="config_oem_label" translatable="false">LYNK &amp; CO</string>
+</resources>

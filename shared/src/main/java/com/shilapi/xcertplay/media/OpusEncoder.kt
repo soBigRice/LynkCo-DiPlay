@@ -10,29 +10,36 @@ import java.io.Closeable
  * microphone uplink.
  */
 internal class OpusEncoder(bitrate: Int) : Closeable {
-    private val codec: MediaCodec? = try {
-        val format = MediaFormat.createAudioFormat(
-            MediaFormat.MIMETYPE_AUDIO_OPUS,
-            SAMPLE_RATE,
-            CHANNELS,
-        ).apply {
-            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_BYTES)
+    private val codec: MediaCodec? = createCodec(bitrate)
+
+    private fun createCodec(bitrate: Int): MediaCodec? {
+        var candidate: MediaCodec? = null
+        return try {
+            val format = MediaFormat.createAudioFormat(
+                MediaFormat.MIMETYPE_AUDIO_OPUS,
+                SAMPLE_RATE,
+                CHANNELS,
+            ).apply {
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_BYTES)
+            }
+            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).also {
+                candidate = it
+                it.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                it.start()
+                Log.i(TAG, "Opus microphone encoder started bitrate=$bitrate")
+            }
+        } catch (error: Exception) {
+            candidate?.let {
+                runCatching { it.release() }.onFailure { releaseError ->
+                    Log.w(TAG, "failed to release rejected Opus encoder", releaseError)
+                }
+            }
+            Log.w(TAG, "Opus microphone encoder unavailable", error)
+            null
         }
-        MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).also {
-            it.configure(
-                format,
-                null,
-                null,
-                MediaCodec.CONFIGURE_FLAG_ENCODE,
-            )
-            it.start()
-            Log.i(TAG, "Opus microphone encoder started bitrate=$bitrate")
-        }
-    } catch (error: Exception) {
-        Log.w(TAG, "Opus microphone encoder unavailable", error)
-        null
     }
+
     private val bufferInfo = MediaCodec.BufferInfo()
     private var presentationTimeUs = 0L
     private var closed = false

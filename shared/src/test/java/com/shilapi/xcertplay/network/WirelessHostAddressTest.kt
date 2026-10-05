@@ -17,6 +17,23 @@ class WirelessHostAddressTest {
         assertEquals(8, (wirelessHostAddress(listOf(wrongScope), 8) as Inet6Address).scopeId)
     }
 
+    @Test fun oemHotspotPrefersUsableIpv4RegardlessOfEnumerationOrder() {
+        val ipv4 = ip("192.168.43.1")
+        val ipv6 = ip("fe80::1234")
+        assertEquals(ipv4, wirelessHostAddress(listOf(ipv4, ipv6), 7, preferIpv4 = true))
+        assertEquals(ipv4, wirelessHostAddress(listOf(ipv6, ipv4), 7, preferIpv4 = true))
+    }
+
+    @Test fun ipv4PreferenceRetainsScopedIpv6Fallback() {
+        val unusableIpv4 = listOf(ip("0.0.0.0"), ip("127.0.0.1"), ip("169.254.1.1"), ip("224.0.0.251"))
+        val wrongScope = Inet6Address.getByAddress(null, ip("fe80::1234").address, 3)
+        val result = wirelessHostAddress(unusableIpv4 + wrongScope, 8, preferIpv4 = true) as Inet6Address
+        assertTrue(result.isLinkLocalAddress)
+        assertEquals(8, result.scopeId)
+        assertNull(wirelessHostAddress(unusableIpv4, 8, preferIpv4 = true))
+        assertNull(wirelessHostAddress(listOf(wrongScope), 0, preferIpv4 = true))
+    }
+
     @Test fun fallsBackToIpv4WithoutUsableLinkLocal() {
         val ipv4 = ip("192.168.43.1")
         assertEquals(ipv4, wirelessHostAddress(listOf(ip("::1"), ip("2001:db8::1"), ipv4), 7))

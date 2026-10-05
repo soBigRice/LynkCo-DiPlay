@@ -16,5 +16,7 @@ internal object AsyncDiagnosticLog {
         runCatching { writer.enqueue(Entry(target, "$timestamp  $safe")) }
     }
 
+    internal val droppedCount: Long get() = writer.droppedCount
+
     internal fun awaitIdle(timeoutMillis: Long): Boolean = writer.awaitIdle(timeoutMillis)
 }

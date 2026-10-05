@@ -63,8 +63,11 @@ class CarPlayRuntimeConfig(
     val manualHotspotSecurity: ManualHotspotSecurity = ManualHotspotSecurity.WPA2,
     val wirelessBluetoothDeviceAddress: String? = null,
     val locationReportingEnabled: Boolean = false,
+    val initialHandshakeTimeoutMillis: Long = 0,
+    val headUnitBluetoothAddress: String? = null,
 ) {
     init {
+        require(initialHandshakeTimeoutMillis in 0..300_000L)
         require(iphoneDevices.all { it.vendorId == APPLE_VENDOR_ID }) {
             "iPhone USB identities must use Apple vendor ID 0x${APPLE_VENDOR_ID.toString(16)}"
         }

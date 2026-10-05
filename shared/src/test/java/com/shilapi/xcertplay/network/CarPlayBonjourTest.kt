@@ -17,6 +17,8 @@ class CarPlayBonjourTest {
             .diagnosticSummary()
         assertEquals("control probe attempts=3 status=none error=IOException", failed)
         assertFalse(failed.contains("Private phone"))
+        assertEquals("control failure stage=INTERFACE_SERVICE error=IOException",
+            CarPlayBonjourEvent.Failure(CarPlayBonjourEvent.Failure.Stage.INTERFACE_SERVICE, "IOException").diagnosticSummary())
     }
     private val config = AirPlayConfig(
         deviceName = "xcertplay",
@@ -49,13 +51,35 @@ class CarPlayBonjourTest {
         )
     }
 
+    @Test fun receiverDeviceIdUsesIndependentDecimalMacVectors() {
+        // CatPlay cp_ctrl_invite AirPlayMacId vectors, not the production encoder.
+        for ((mac, expected) in listOf(
+            "AA:BB:CC:DD:EE:FF" to "187723572702975",
+            "00:11:22:33:44:55" to "73588229205",
+            "aabbccddeeff" to "187723572702975",
+            "00:00:00:00:00:00" to "0",
+            "FF:FF:FF:FF:FF:FF" to "281474976710655",
+        )) {
+            val request = CarPlayBonjourProtocol.connectProbeRequest("192.168.2.2", 7000, "366.0", mac)
+            assertEquals("AirPlay-Receiver-Device-ID: $expected", request.lineSequence().first { it.startsWith("AirPlay-Receiver") })
+        }
+    }
+
+    @Test fun invitationRejectsMalformedOrOversizedMacIdentifiers() {
+        for (invalid in listOf("", "AA:BB", "AA:BB:CC:DD:EE:GG", "FFFFFFFFFFFFFF", ":AABBCCDDEEFF", "00:11:22:33:44:55\r\nInjected: yes")) {
+            org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+                CarPlayBonjourProtocol.connectProbeRequest("192.168.2.2", 7000, "366.0", invalid)
+            }
+        }
+    }
+
     @Test
     fun connectProbeRequestMatchesExactRequestLineAndHeaders() {
         assertEquals(
             "GET /ctrl-int/1/connect HTTP/1.1\r\n" +
                 "Host: [fe80::1]:7000\r\n" +
                 "User-Agent: AirPlay/366.0\r\n" +
-                "AirPlay-Receiver-Device-ID: 020000000002\r\n" +
+                "AirPlay-Receiver-Device-ID: 2199023255554\r\n" +
                 "Connection: close\r\n" +
                 "\r\n",
             CarPlayBonjourProtocol.connectProbeRequest(

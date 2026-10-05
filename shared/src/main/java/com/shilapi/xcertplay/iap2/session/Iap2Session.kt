@@ -92,6 +92,10 @@ class Iap2Session private constructor(
 
     private fun emitFrameTrace(direction: Iap2TraceDirection, frame: Iap2Frame) {
         try {
+            // Metadata survives diagnostic redaction; never include field values or raw bodies.
+            if (frame.messageId ushr 8 in setOf(0x1d, 0xaa, 0x43, 0x4e, 0x57)) {
+                emitTrace("IAP2_META ${direction.label} id=0x${frame.messageId.toString(16)} bytes=${frame.payload.size}")
+            }
             emitTrace(Iap2FrameFormatter.format(direction, traceContext, frame))
         } catch (failure: Exception) {
             emitTrace(

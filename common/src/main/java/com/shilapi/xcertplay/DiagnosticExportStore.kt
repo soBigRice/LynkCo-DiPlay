@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay
 
+import android.content.Context
+import androidx.core.content.FileProvider
+import java.io.File
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.net.Uri
@@ -11,6 +14,19 @@ import java.io.IOException
 
 /** Saves an app-owned report without depending on an OEM's document-picker activity. */
 internal object DiagnosticExportStore {
+    data class SavedReport(val file: File, val uri: Uri)
+
+    fun saveLocally(context: Context, fileName: String, report: String): SavedReport {
+        require(fileName.matches(Regex("DiPlay-[A-Za-z0-9-]+\\.txt")))
+        val directory = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?.let { File(it, "DiPlay") } ?: File(context.filesDir, "reports")
+        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Report directory unavailable")
+        val file = File(directory, fileName)
+        file.writeText(report, Charsets.UTF_8)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.reports", file)
+        return SavedReport(file, uri)
+    }
+
     @RequiresApi(Build.VERSION_CODES.Q)
     fun saveToDownloads(resolver: ContentResolver, fileName: String, report: String): Uri {
         val values = ContentValues().apply {

@@ -892,14 +892,24 @@ private class AudioRenderer(
                     "csd0=${aacAudioSpecificConfig().toHexString()}",
             )
         }
+        var candidate: MediaCodec? = null
         codec = try {
             MediaCodec.createDecoderByType(mime).also {
+                candidate = it
                 it.configure(mediaFormat, null, null, 0)
                 it.start()
                 Log.i(TAG, "audio decoder configured mime=$mime name=${it.name}")
             }
         } catch (error: Exception) {
+            // The factory may succeed even when the ROM rejects configure/start.
+            // That partially initialized codec still owns a native codec instance.
+            candidate?.let {
+                runCatching { it.release() }.onFailure { releaseError ->
+                    Log.w(TAG, "failed to release rejected audio decoder", releaseError)
+                }
+            }
             Log.e(TAG, "audio decoder configuration failed mime=$mime", error)
+            report("Audio: decoder unavailable codec=${format.codec} error=${error.javaClass.simpleName}")
             null
         }
     }
@@ -924,7 +934,6 @@ private class AudioRenderer(
         val built: AudioTrack
         var routeLabel: String
         if (streamOverride == 0) {
-            val attributes = audioAttributesFor(selection)
             routeLabel = "usage"
             built = AudioTrack.Builder()
                 .setAudioAttributes(attributes)
@@ -945,8 +954,10 @@ private class AudioRenderer(
                 createFallback = {
                     routeLabel = "streamType=$streamType(fallback=usage)"
                     Log.w(TAG, "streamType=$streamType rejected by this ROM; falling back to usage-based track")
+                    val fallbackAttributes = audioAttributesFor(selection)
+                    trackAttributes = fallbackAttributes
                     AudioTrack.Builder()
-                        .setAudioAttributes(audioAttributesFor(selection))
+                        .setAudioAttributes(fallbackAttributes)
                         .setAudioFormat(pcmFormat(encoding, channelMask))
                         .setTransferMode(AudioTrack.MODE_STREAM)
                         .setBufferSizeInBytes(plan.trackBufferBytes)
@@ -955,7 +966,9 @@ private class AudioRenderer(
             )
         }
         track = built
-        trackAttributes = built.audioAttributes
+        // This getter was added in API 29. Android 9 must retain the attributes used
+        // to construct the selected track, including the legacy-to-usage fallback.
+        if (Build.VERSION.SDK_INT >= 29) trackAttributes = built.audioAttributes
         val capacityBytes = built.bufferSizeInFrames * frameBytes
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         report("Audio: ready audioType=${format.audioType} codec=${format.codec} " +

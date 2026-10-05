@@ -223,11 +223,14 @@ internal object CarPlayMediaKeys {
             Log.i(TAG, "media key $source -> car video player $index")
             return
         }
-        val sent = synchronized(this) { controller }?.sendMediaButton(index) ?: false
+        val sent = synchronized(this) { controller }?.sendMediaButton(index, source) ?: false
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
     }
 
-    private val callback = CarPlayMediaCallback(::send)
+    private val callback = CarPlayMediaCallback(
+        bydHardwareToggle = { appContext?.let(com.shilapi.xcertplay.hud.BydOutputSettings::integrationAllowed) == true },
+        send = ::send,
+    )
 
     internal fun androidMetadata(info: CarPlayNowPlaying, artwork: Bitmap? = null): MediaMetadata =
         MediaMetadata.Builder().apply {
@@ -280,14 +283,17 @@ internal object CarPlayMediaKeys {
 }
 
 /**
- * Media-session input → CarPlay presses. Hardware keys arrive as button events and keep the toggle;
+ * Media-session input → CarPlay presses. Only BYD hardware keys need the firmware toggle workaround;
  * media controllers (not hardware keys) call [onPlay] and [onPause] with an explicit intent.
  */
-internal class CarPlayMediaCallback(private val send: (index: Int, source: String) -> Unit) : MediaSession.Callback() {
+internal class CarPlayMediaCallback(
+    private val bydHardwareToggle: () -> Boolean = { true },
+    private val send: (index: Int, source: String) -> Unit,
+) : MediaSession.Callback() {
     override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
         @Suppress("DEPRECATION")
         val event = mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
-        val index = CarPlayMediaButton.forKeyCode(event.keyCode) ?: return super.onMediaButtonEvent(mediaButtonIntent)
+        val index = CarPlayMediaButton.forKeyCode(event.keyCode, bydHardwareToggle()) ?: return super.onMediaButtonEvent(mediaButtonIntent)
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             send(index, KeyEvent.keyCodeToString(event.keyCode))
         }

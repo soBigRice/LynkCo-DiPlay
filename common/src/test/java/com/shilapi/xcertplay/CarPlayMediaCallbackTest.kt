@@ -13,7 +13,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28, 29], manifest = Config.NONE)
 class CarPlayMediaCallbackTest {
     private val sent = mutableListOf<Int>()
     private val callback = CarPlayMediaCallback { index, _ -> sent += index }
@@ -38,6 +38,24 @@ class CarPlayMediaCallbackTest {
         press(CarPlayMediaButton.KEYCODE_BYD_AUTO_MEDIA_PLAY_PAUSE)
 
         assertEquals(List(3) { CarPlayMediaButton.PLAY_PAUSE }, sent)
+    }
+
+    @Test
+    fun nonBydPlayRequestsNeverTurnIntoPauseToggles() {
+        val standard = CarPlayMediaCallback(bydHardwareToggle = { false }) { index, _ -> sent += index }
+        listOf(KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE).forEach { key ->
+            standard.onMediaButtonEvent(button(KeyEvent(KeyEvent.ACTION_DOWN, key)))
+        }
+        assertEquals(listOf(CarPlayMediaButton.PLAY, CarPlayMediaButton.PLAY,
+            CarPlayMediaButton.PAUSE, CarPlayMediaButton.PLAY_PAUSE), sent)
+    }
+
+    @Test
+    fun nonBydProfileDoesNotTreatVendorKeyAsToggle() {
+        val standard = CarPlayMediaCallback(bydHardwareToggle = { false }) { index, _ -> sent += index }
+        standard.onMediaButtonEvent(button(KeyEvent(KeyEvent.ACTION_DOWN, CarPlayMediaButton.KEYCODE_BYD_AUTO_MEDIA_PLAY_PAUSE)))
+        assertEquals(emptyList<Int>(), sent)
     }
 
     @Test

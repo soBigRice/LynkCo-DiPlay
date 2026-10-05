@@ -32,7 +32,7 @@ import org.robolectric.shadows.ShadowAudioRecord
 import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE, shadows = [TelephonyMicrophoneTest.ConfigurableAudioEffect::class])
+@Config(sdk = [28, 29], manifest = Config.NONE, shadows = [TelephonyMicrophoneTest.ConfigurableAudioEffect::class])
 class TelephonyMicrophoneTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val telephony = AudioStreamId(100, "telephony")

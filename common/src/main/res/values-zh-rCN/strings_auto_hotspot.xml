@@ -1,0 +1,15 @@
+<resources>
+    <string name="auto_hotspot_title">自动临时热点</string>
+    <string name="auto_hotspot_intro">由 App 创建热点并发送给 iPhone，无需填写名称和密码。</string>
+    <string name="auto_hotspot_notice">使用 2.4 GHz 时，转入 Wi-Fi 后暂时关闭车机蓝牙，CarPlay 结束后恢复；期间其他蓝牙设备会断开。</string>
+    <string name="auto_hotspot_start">使用自动热点</string>
+    <string name="auto_hotspot_manual">改用车机热点</string>
+    <string name="auto_hotspot_ready">待连接 · 自动临时热点</string>
+    <string name="auto_hotspot_creating">正在创建临时热点，并检查实际网络参数。</string>
+    <string name="auto_hotspot_sent">热点信息已自动发送。保持 iPhone Wi-Fi 和蓝牙开启，并允许手机上的 CarPlay 提示。</string>
+    <string name="auto_hotspot_conflict">请先关闭车机系统原有的共享热点，再点重试；也可在连接设置里改用车机热点。</string>
+    <string name="auto_hotspot_failed">车机未能提供可用的临时热点。可在连接设置里改用车机热点，或导出日志。</string>
+    <string name="auto_hotspot_location">请开启车机系统定位，并允许 App 的位置权限，再点重试。这是 Android 9 创建热点的系统要求。</string>
+    <string name="auto_bluetooth_restoring">正在恢复车机蓝牙…</string>
+    <string name="auto_bluetooth_restore_failed">车机蓝牙尚未恢复，请在系统设置里开启蓝牙后返回。</string>
+</resources>

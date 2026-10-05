@@ -26,6 +26,7 @@ class NcmUsbBridge internal constructor(
     private val statusEndpoint: UsbEndpoint?,
     private val claimedInterfaces: List<UsbInterface>,
     descriptorHostMac: ByteArray?,
+    private val afterClose: () -> Unit = {},
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -134,8 +135,10 @@ class NcmUsbBridge internal constructor(
                 // Best-effort release; the connection close below is authoritative.
             }
         }
-        connection.close()
-        runCatching { requestToClose?.close() }
+        try { connection.close() } finally {
+            runCatching { requestToClose?.close() }
+            afterClose()
+        }
     }
 
     private fun drainStatus(endpoint: UsbEndpoint) {
@@ -298,10 +301,21 @@ class NcmUsbBridge internal constructor(
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** Claims and activates the NCM control/data interfaces; owns the connection on success. */
-        fun open(connection: UsbDeviceConnection, function: NcmFunctionDiscovery.NcmFunction): NcmUsbBridge {
+        fun open(
+            connection: UsbDeviceConnection,
+            function: NcmFunctionDiscovery.NcmFunction,
+            expectedConfigurationId: Int? = null,
+            onDiagnostic: (String) -> Unit = {},
+            afterClose: () -> Unit = {},
+        ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
-                val descriptorHostMac = readNcmHostMac(connection, function.control.id)
+                expectedConfigurationId?.let {
+                    IphoneUsbConfiguration.requireActive(connection, it, onDiagnostic)
+                }
+                val descriptorHostMac = readNcmHostMac(
+                    connection, function.control.id, expectedConfigurationId, function.control.alternateSetting,
+                )
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "ncm descriptor hostMac=${descriptorHostMac?.macString() ?: "unavailable"}",
@@ -311,6 +325,7 @@ class NcmUsbBridge internal constructor(
                 val sameInterface = function.control.id == function.data.id
                 val first = if (sameInterface) function.data else function.control
                 val firstClaimed = connection.claimInterface(first, true)
+                onDiagnostic("USB NCM control claim iface=${first.id}/${first.alternateSetting} result=$firstClaimed")
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "claim iface=${first.id}/${first.alternateSetting} class=${first.interfaceClass}" +
@@ -324,6 +339,7 @@ class NcmUsbBridge internal constructor(
                 claimed.add(first)
                 if (!sameInterface) {
                     val dataClaimed = connection.claimInterface(function.data, true)
+                    onDiagnostic("USB NCM data claim iface=${function.data.id}/${function.data.alternateSetting} result=$dataClaimed")
                     Log.i(
                         IphoneCarPlayConfiguration.TAG,
                         "claim iface=${function.data.id}/${function.data.alternateSetting}" +
@@ -337,6 +353,7 @@ class NcmUsbBridge internal constructor(
                     claimed.add(function.data)
                 }
                 val altSelected = connection.setInterface(function.data)
+                onDiagnostic("USB NCM alternate iface=${function.data.id}/${function.data.alternateSetting} result=$altSelected")
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "setInterface iface=${function.data.id}/${function.data.alternateSetting} ok=$altSelected",
@@ -357,6 +374,7 @@ class NcmUsbBridge internal constructor(
                     function.statusIn,
                     claimed,
                     descriptorHostMac,
+                    afterClose,
                 )
             } catch (error: Throwable) {
                 for (usbInterface in claimed.asReversed()) {
@@ -372,8 +390,15 @@ class NcmUsbBridge internal constructor(
             }
         }
 
-        private fun readNcmHostMac(connection: UsbDeviceConnection, controlInterfaceId: Int): ByteArray? {
-            val index = ethernetMacStringIndex(connection.rawDescriptors, controlInterfaceId) ?: return null
+        private fun readNcmHostMac(
+            connection: UsbDeviceConnection,
+            controlInterfaceId: Int,
+            configurationId: Int?,
+            alternateSetting: Int,
+        ): ByteArray? {
+            val index = ethernetMacStringIndex(
+                connection.rawDescriptors, controlInterfaceId, configurationId, alternateSetting,
+            ) ?: return null
             val buffer = ByteArray(256)
             val length = connection.controlTransfer(
                 UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_STANDARD,
@@ -393,19 +418,34 @@ class NcmUsbBridge internal constructor(
             return ByteArray(6) { offset -> hex.substring(offset * 2, offset * 2 + 2).toInt(16).toByte() }
         }
 
-        private fun ethernetMacStringIndex(raw: ByteArray, controlInterfaceId: Int): Int? {
+        internal fun ethernetMacStringIndex(
+            raw: ByteArray,
+            controlInterfaceId: Int,
+            configurationId: Int? = null,
+            alternateSetting: Int = 0,
+        ): Int? {
             var offset = 0
             var currentInterface = -1
+            var currentConfiguration = -1
+            var currentAlternate = -1
             while (offset + 2 <= raw.size) {
                 val length = raw[offset].toInt() and 0xff
                 val type = raw[offset + 1].toInt() and 0xff
                 if (length < 2 || offset + length > raw.size) return null
-                if (type == USB_INTERFACE_DESCRIPTOR_TYPE && length >= 9) {
+                if (type == 0x02 && length >= 9) {
+                    // Interface numbers are local to a configuration, not to the USB device.
+                    currentConfiguration = raw[offset + 5].toInt() and 0xff
+                    currentInterface = -1
+                    currentAlternate = -1
+                } else if (type == USB_INTERFACE_DESCRIPTOR_TYPE && length >= 9) {
                     currentInterface = raw[offset + 2].toInt() and 0xff
+                    currentAlternate = raw[offset + 3].toInt() and 0xff
                 } else if (
                     type == CDC_FUNCTIONAL_DESCRIPTOR_TYPE &&
                     length >= 4 &&
                     currentInterface == controlInterfaceId &&
+                    (configurationId == null ||
+                        (currentConfiguration == configurationId && currentAlternate == alternateSetting)) &&
                     (raw[offset + 2].toInt() and 0xff) == CDC_ETHERNET_SUBTYPE
                 ) {
                     return (raw[offset + 3].toInt() and 0xff).takeIf { it != 0 }

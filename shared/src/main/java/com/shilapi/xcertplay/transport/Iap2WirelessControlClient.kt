@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.iap2.message.Iap2WirelessMessages
 import com.shilapi.xcertplay.iap2.message.Iap2WirelessSessionParameters
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import kotlin.math.min
 
@@ -31,6 +32,9 @@ class Iap2WirelessControlClient(
         onReady: () -> Unit = {},
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
+        initialHandshakeTimeoutMillis: Long = 0,
+        sessionActive: () -> Boolean = { false },
+        onHandshakeStage: (Iap2HandshakeStage) -> Unit = {},
     ): Iap2WirelessControlResult {
         require(identification.wireless != null) {
             "Wireless control requires an Iap2IdentificationConfig with wireless transport"
@@ -44,20 +48,39 @@ class Iap2WirelessControlClient(
         } else {
             deadlineAfter(timeoutMillis)
         }
+        val handshake = Iap2HandshakeDeadline(initialHandshakeTimeoutMillis, sessionActive)
+        fun reportHandshake(stage: Iap2HandshakeStage) {
+            handshake.stage = stage
+            onHandshakeStage(stage)
+        }
+        fun send(frame: Iap2Frame) = session.send(frame, handshake.bound(requireRemaining(deadlineNanos)))
         val identified = identification.withVehicleStatusFrom(vehicleStatusProvider)
         if (identified.vehicleStatusEnabled != identification.vehicleStatusEnabled) {
             onProgress("iap2 no battery reading: not declaring an electric vehicle")
         }
-        Iap2IdentificationClient(session).identify(identified, requireRemaining(deadlineNanos))
+        reportHandshake(Iap2HandshakeStage.IDENTIFYING)
+        try {
+            Iap2IdentificationClient(session).identify(identified, handshake.bound(requireRemaining(deadlineNanos)))
+        } catch (failure: Exception) {
+            handshake.bound(1) // Preserve the exact stalled milestone if the startup budget expired.
+            throw failure
+        }
         onProgress("iap2 identification accepted")
         var stage = Iap2WirelessControlStage.IDENTIFIED
 
-        mfi.run(session, requireRemaining(deadlineNanos), onProgress)
+        reportHandshake(Iap2HandshakeStage.AUTHENTICATING)
+        try {
+            mfi.run(session, handshake.bound(requireRemaining(deadlineNanos)), onProgress)
+        } catch (failure: Exception) {
+            handshake.bound(1)
+            throw failure
+        }
         stage = Iap2WirelessControlStage.AUTHENTICATED
         onProgress("iap2 authentication accepted")
+        reportHandshake(Iap2HandshakeStage.WAITING_FOR_CARPLAY)
 
         for (subscription in Iap2WiredControlClient.subscriptions()) {
-            send(subscription, deadlineNanos)
+            send(subscription)
         }
         stage = Iap2WirelessControlStage.SUBSCRIBED
         onProgress("iap2 subscriptions sent")
@@ -73,7 +96,7 @@ class Iap2WirelessControlClient(
         val location = Iap2LocationReporter(locationProvider, onProgress, locationRequest, continueLocationRequest)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         while (true) {
-                val remaining = remainingMillis(deadlineNanos)
+                val remaining = handshake.bound(remainingMillis(deadlineNanos), poll = true)
                 if (remaining == 0L) {
                     return Iap2WirelessControlResult(
                         Iap2WirelessControlTerminal.TIMED_OUT,
@@ -86,8 +109,8 @@ class Iap2WirelessControlClient(
                         wirelessCarPlayAvailableSeen,
                     )
                 }
-                location.tick { send(it, deadlineNanos) }
-                vehicleStatus.tick { send(it, deadlineNanos) }
+                location.tick { send(it) }
+                vehicleStatus.tick { send(it) }
                 val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining))
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
@@ -137,7 +160,7 @@ class Iap2WirelessControlClient(
                                 "iap2 0x5703 ignored: maximum Wi-Fi configuration sends reached",
                             )
                         } else {
-                            send(accessoryWiFiConfiguration(endpoint), deadlineNanos)
+                            send(accessoryWiFiConfiguration(endpoint))
                             stage = later(
                                 stage,
                                 if (postTransport) {
@@ -153,15 +176,30 @@ class Iap2WirelessControlClient(
                                 preTransportWiFiConfigurationsSent++
                             }
                             onProgress("iap2 tx=0x5703 accessory-wifi-configuration")
+                            reportHandshake(Iap2HandshakeStage.WIFI_CREDENTIALS_SENT)
                         }
                     }
 
                     CARPLAY_AVAILABILITY -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
-                        send(carPlayStartSession(endpoint), deadlineNanos)
+                        val diagnostic = try {
+                            val availability = Iap2CarPlayMessages.availability(incoming)
+                            "wired=${availability.wired?.available ?: "unknown"} " +
+                                "wireless=${availability.wireless?.available ?: "unknown"} " +
+                                "wiredTransportPresent=${!availability.wired?.identifier.isNullOrEmpty()} " +
+                                "radioTransportPresent=${!availability.wireless?.identifier.isNullOrEmpty()}"
+                        } catch (_: Iap2ProtocolException) {
+                            // Unknown optional fields must not turn diagnostics into a start gate.
+                            "decode=unrecognized"
+                        }
+                        onProgress("CONNECTION_DIAGNOSTIC iap2 availability $diagnostic")
+                        // LIVI responds to 0x4300 even before wireless availability is true.
+                        // This status is diagnostic, not a permission decision or a start gate.
+                        send(carPlayStartSession(endpoint))
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
                         onProgress("iap2 tx=0x4301 carplay-start-session")
+                        reportHandshake(Iap2HandshakeStage.START_REQUESTED)
                     }
 
                     WIRELESS_CARPLAY_UPDATE -> {
@@ -189,7 +227,7 @@ class Iap2WirelessControlClient(
                                     "maximum Wi-Fi configuration sends reached",
                             )
                         } else {
-                            send(accessoryWiFiConfiguration(endpoint), deadlineNanos)
+                            send(accessoryWiFiConfiguration(endpoint))
                             stage = later(
                                 stage,
                                 Iap2WirelessControlStage.POST_TRANSPORT_WIFI_CONFIG_SENT,
@@ -199,16 +237,17 @@ class Iap2WirelessControlClient(
                             onProgress(
                                 "iap2 tx=0x5703 post-transport accessory-wifi-configuration",
                             )
+                            reportHandshake(Iap2HandshakeStage.WIFI_CREDENTIALS_SENT)
                         }
                     }
 
                     Iap2VehicleStatus.START_VEHICLE_STATUS_UPDATES, Iap2VehicleStatus.STOP_VEHICLE_STATUS_UPDATES -> {
-                        vehicleStatus.handle(incoming) { send(it, deadlineNanos) }
+                        vehicleStatus.handle(incoming) { send(it) }
                     }
 
                     Iap2LocationMessages.START_LOCATION_INFORMATION,
                     Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
-                        location.handle(incoming) { send(it, deadlineNanos) }
+                        location.handle(incoming) { send(it) }
                     }
 
                     else -> {
@@ -218,10 +257,6 @@ class Iap2WirelessControlClient(
                     }
                 }
         }
-    }
-
-    private fun send(frame: Iap2Frame, deadlineNanos: Long) {
-        session.send(frame, requireRemaining(deadlineNanos))
     }
 
     companion object {

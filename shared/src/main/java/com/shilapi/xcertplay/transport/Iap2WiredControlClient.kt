@@ -29,6 +29,9 @@ class Iap2WiredControlClient(
         vehicleStatusProvider: VehicleStatusProvider? = null,
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
+        initialHandshakeTimeoutMillis: Long = 0,
+        sessionActive: () -> Boolean = { false },
+        onHandshakeStage: (Iap2HandshakeStage) -> Unit = {},
     ): Iap2WiredControlResult {
         require(availableCurrentMilliAmps in 0..0xffff) {
             "availableCurrentMilliAmps must be in 0..65535"
@@ -38,20 +41,39 @@ class Iap2WiredControlClient(
         }
 
         val deadlineNanos = Iap2ControlDeadline(timeoutMillis)
+        val handshake = Iap2HandshakeDeadline(initialHandshakeTimeoutMillis, sessionActive)
+        fun reportHandshake(stage: Iap2HandshakeStage) {
+            handshake.stage = stage
+            onHandshakeStage(stage)
+        }
+        fun send(frame: Iap2Frame) = session.send(frame, handshake.bound(requireRemaining(deadlineNanos)))
         val identified = identification.withVehicleStatusFrom(vehicleStatusProvider)
         if (identified.vehicleStatusEnabled != identification.vehicleStatusEnabled) {
             onProgress("iap2 no battery reading: not declaring an electric vehicle")
         }
-        Iap2IdentificationClient(session).identify(identified, requireRemaining(deadlineNanos))
+        reportHandshake(Iap2HandshakeStage.IDENTIFYING)
+        try {
+            Iap2IdentificationClient(session).identify(identified, handshake.bound(requireRemaining(deadlineNanos)))
+        } catch (failure: Exception) {
+            handshake.bound(1) // Preserve the exact stalled milestone if the startup budget expired.
+            throw failure
+        }
         onProgress("iap2 identification accepted")
         var stage = Iap2WiredControlStage.IDENTIFIED
-        mfi.run(session, requireRemaining(deadlineNanos), onProgress)
+        reportHandshake(Iap2HandshakeStage.AUTHENTICATING)
+        try {
+            mfi.run(session, handshake.bound(requireRemaining(deadlineNanos)), onProgress)
+        } catch (failure: Exception) {
+            handshake.bound(1)
+            throw failure
+        }
         stage = Iap2WiredControlStage.AUTHENTICATED
         onProgress("iap2 authentication accepted")
+        reportHandshake(Iap2HandshakeStage.WAITING_FOR_CARPLAY)
         deadlineNanos.authenticated()
 
-        send(powerSourceUpdate(availableCurrentMilliAmps), deadlineNanos)
-        for (subscription in subscriptions()) send(subscription, deadlineNanos)
+        send(powerSourceUpdate(availableCurrentMilliAmps))
+        for (subscription in subscriptions()) send(subscription)
         stage = Iap2WiredControlStage.SUBSCRIBED
         onProgress("iap2 power/subscriptions sent")
 
@@ -61,12 +83,12 @@ class Iap2WiredControlClient(
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
             while (true) {
-                val remaining = remainingMillis(deadlineNanos)
+                val remaining = handshake.bound(remainingMillis(deadlineNanos), poll = true)
                 if (remaining == 0L) {
                     return Iap2WiredControlResult(Iap2WiredControlTerminal.TIMED_OUT, stage, forwardedFrames, carPlayStartSessions)
                 }
-                location.tick { send(it, deadlineNanos) }
-                vehicleStatus.tick { send(it, deadlineNanos) }
+                location.tick { send(it) }
+                vehicleStatus.tick { send(it) }
                 val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining))
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
@@ -95,18 +117,19 @@ class Iap2WiredControlClient(
                         onProgress(carPlayAvailabilitySummary(incoming.payload))
                         // LIVI sends its wired answer on every availability notification; do not gate it on
                         // the phone's advertised availability boolean.
-                        send(carPlayStartSession(endpoint), deadlineNanos)
+                        send(carPlayStartSession(endpoint))
                         stage = Iap2WiredControlStage.CARPLAY_START_SENT
                         carPlayStartSessions++
                         onProgress("iap2 tx=0x4301 carplay-start-session")
+                        reportHandshake(Iap2HandshakeStage.START_REQUESTED)
                     }
 
                     Iap2LocationMessages.START_LOCATION_INFORMATION, Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
-                        location.handle(incoming) { send(it, deadlineNanos) }
+                        location.handle(incoming) { send(it) }
                     }
 
                     Iap2VehicleStatus.START_VEHICLE_STATUS_UPDATES, Iap2VehicleStatus.STOP_VEHICLE_STATUS_UPDATES -> {
-                        vehicleStatus.handle(incoming) { send(it, deadlineNanos) }
+                        vehicleStatus.handle(incoming) { send(it) }
                     }
 
                     else -> {
@@ -119,10 +142,6 @@ class Iap2WiredControlClient(
         } finally {
             locationProvider?.stop()
         }
-    }
-
-    private fun send(frame: Iap2Frame, deadlineNanos: Iap2ControlDeadline) {
-        session.send(frame, requireRemaining(deadlineNanos))
     }
 
     companion object {

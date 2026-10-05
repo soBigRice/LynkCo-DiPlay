@@ -6,12 +6,14 @@ import android.net.ConnectivityManager
 import android.net.wifi.SoftApConfiguration
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
+import android.net.wifi.SupplicantState
 import android.os.Build
 import android.os.Looper
 import android.util.Log
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
+import com.shilapi.xcertplay.shared.R
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -48,6 +50,9 @@ class ManualHotspotManager(
     private val expectedBand = band
     private val expectedChannel = channel
     private val expectedSecurity = security.toIap2Security()
+    private val strictInterfaceSelection = appContext.resources.getBoolean(R.bool.config_manual_hotspot_strict_interface)
+    private val preferIpv4 = appContext.resources.getBoolean(R.bool.config_manual_hotspot_prefer_ipv4)
+    private var lastInterfaceDiagnostic: String? = null
 
     @Volatile
     private var closed = false
@@ -206,7 +211,7 @@ class ManualHotspotManager(
         } ?: return null
         val primaryInterface = connectivityManager?.activeNetwork
             ?.let { connectivityManager.getLinkProperties(it)?.interfaceName }
-        return Collections.list(interfaces)
+        val candidates = Collections.list(interfaces)
             .asSequence()
             .filter { isUsableInterface(it, primaryInterface) }
             .mapNotNull { networkInterface ->
@@ -218,10 +223,39 @@ class ManualHotspotManager(
                             .getOrNull()?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
                             ?: HotspotInterfaceBssid.read(networkInterface.name),
                         score = interfaceScore(networkInterface.name, address),
+                        ipv4 = Collections.list(networkInterface.inetAddresses)
+                            .filterIsInstance<Inet4Address>().mapNotNull { it.hostAddress }.toSet(),
                     )
                 }
             }
-            .maxByOrNull(LocalHotspotInterface::score)
+            .toList()
+        if (!strictInterfaceSelection) return candidates.maxByOrNull(LocalHotspotInterface::score)
+        // System-owned hotspots have no public Network object of their own. Exclude every
+        // registered upstream, not just the default (cellular can be default while Wi-Fi is STA).
+        val upstreamInterfaces = runCatching {
+            connectivityManager?.allNetworks.orEmpty().mapNotNull {
+                connectivityManager?.getLinkProperties(it)?.interfaceName
+            }.toSet()
+        }.getOrDefault(emptySet())
+        val stationIpv4 = runCatching {
+            wifiManager.connectionInfo.takeIf { it.supplicantState == SupplicantState.COMPLETED }
+                ?.ipAddress?.takeIf { it != 0 }?.let { address ->
+                    (0..3).joinToString(".") { ((address ushr (it * 8)) and 0xff).toString() }
+                }
+        }.getOrNull()
+        val selected = ManualHotspotInterfacePolicy.select(
+            candidates.map { ManualHotspotInterfacePolicy.Candidate(it.name, it.ipv4) },
+            upstreamInterfaces,
+            stationIpv4,
+        )
+        val diagnostic = "Manual hotspot interface selection strict=true " +
+            "candidates=${candidates.map { it.name }} upstream=${upstreamInterfaces.sorted()} " +
+            "stationAddressKnown=${stationIpv4 != null} selected=${selected ?: "waiting"}"
+        if (diagnostic != lastInterfaceDiagnostic) {
+            lastInterfaceDiagnostic = diagnostic
+            onDiagnostic(diagnostic)
+        }
+        return candidates.singleOrNull { it.name == selected }
     }
 
     private fun isUsableInterface(
@@ -255,7 +289,7 @@ class ManualHotspotManager(
     }
 
     private fun NetworkInterface.hotspotAddress(): InetAddress? =
-        wirelessHostAddress(Collections.list(inetAddresses), index)
+        wirelessHostAddress(Collections.list(inetAddresses), index, preferIpv4)
 
     private fun frequencyFromConnectionInfo(): Int? {
         val connectionInfo = try {
@@ -428,6 +462,7 @@ class ManualHotspotManager(
         val hostAddress: InetAddress,
         val hardwareAddress: String?,
         val score: Int,
+        val ipv4: Set<String>,
     )
 
     private companion object {

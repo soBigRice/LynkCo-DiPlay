@@ -1,0 +1,28 @@
+<resources>
+    <string name="lynk_upstream_credit">Modified from DiPlay · Lynk edition</string>
+    <string name="lynk_upstream_description">This app is a modified version of the open-source shihabal3amri/DiPlay project, adapted for Lynk OS N 2.0 (Android 9), with changes to connection flows, the interface and diagnostics.\n\nOriginal project author: shihabal3amri. Thanks to the contributors to DiPlay and its dependencies. This is an independent modification, not an official upstream DiPlay release.</string>
+    <string name="lynk_upstream_project">Original DiPlay project · GitHub</string>
+    <string name="lynk_upstream_notices">Upstream open-source and license notices</string>
+    <string name="lynk_upstream_no_browser">No browser is available on this head unit. Open this address on your phone: %1$s</string>
+    <string name="lynk_connection">Connect</string>
+    <string name="lynk_panel_brand" translatable="false">LYNK &amp; CO</string>
+    <string name="lynk_panel_edition" translatable="false">DiPlay · LYNK Edition</string>
+    <string name="lynk_home">Home</string>
+    <string name="lynk_panel_subtitle">Phone connection</string>
+    <string name="lynk_home_description">Your music, maps and calls.\nRight here in your car.</string>
+    <string name="lynk_connection_methods">Choose your connection</string>
+    <string name="lynk_wireless">Wireless connection</string>
+    <string name="lynk_wired">USB connection</string>
+    <string name="lynk_status">CONNECTION STATUS</string>
+    <string name="lynk_general">General</string>
+    <string name="lynk_display">Display</string>
+    <string name="lynk_audio">Audio</string>
+    <string name="lynk_support">Help</string>
+    <string name="lynk_export_short">Export logs</string>
+    <string name="lynk_export_copy">Wired and wireless history, together in one file.</string>
+    <string name="lynk_hotspot_intro">Set up once. Ready for your next drive.</string>
+    <string name="lynk_hotspot_step">01 / CAR HOTSPOT</string>
+    <string name="lynk_phone_step">02 / IPHONE PAIRING</string>
+    <string name="lynk_progress_label">CARPLAY CONNECTION</string>
+    <string name="lynk_settings_copy">Choose a category. Your saved preferences stay with you.</string>
+</resources>

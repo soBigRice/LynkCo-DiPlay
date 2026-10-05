@@ -30,7 +30,14 @@ import java.util.concurrent.TimeUnit
  * the AP interface is usable. The reservation and multicast lock stay owned by this instance
  * until [close].
  */
-class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit = {}) : WirelessHotspotManager {
+class LocalOnlyHotspotManager(
+    context: Context,
+    private val onDiagnostic: (String) -> Unit = {},
+    private val allowTwoPointFour: Boolean = false,
+    private val onUnexpectedStop: () -> Unit = {},
+) : WirelessHotspotManager {
+    private val appContext = context.applicationContext
+    private fun contextLocationEnabled(): Boolean = appContext.getSystemService(android.location.LocationManager::class.java)?.isLocationEnabled == true
     private val connectivityManager =
         context.applicationContext.getSystemService(ConnectivityManager::class.java)
     private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
@@ -72,6 +79,10 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
 
         try {
             ensureStartActive(attempt)
+            if (allowTwoPointFour) {
+                if (!contextLocationEnabled()) throw IOException("Location mode is not enabled for LocalOnlyHotspot")
+                if (CarHotspotStatus.isEnabled(appContext) == true) throw IOException("LocalOnlyHotspot incompatible mode: existing shared car hotspot is on")
+            }
             onDiagnostic("LocalOnlyHotspot starting with Wi-Fi client enabled=${wifiManager.isWifiEnabled}")
             disconnectTwoPointFourStation()
             val requestedChannel = requestHotspot(createCallback(attempt))
@@ -89,7 +100,10 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
                 deadlineNanos = deadlineNanos,
             )
             val liveRadio = awaitRadioInfo(radioInfo, apInterface, configuration, attempt, deadlineNanos)
-            if (liveRadio?.frequencyMHz?.let { it !in 5160..5895 } ?: (configuration.bandLabel != "5 GHz")) {
+            val verifiedChannel = if (allowTwoPointFour) LocalHotspotRadioPolicy.channel(
+                configuration.bandLabel, configuration.channel, liveRadio?.frequencyMHz, true,
+            ) else null
+            if (!allowTwoPointFour && (liveRadio?.frequencyMHz?.let { it !in 5160..5895 } ?: (configuration.bandLabel != "5 GHz"))) {
                 throw IOException("This firmware did not provide the requested 5 GHz local hotspot; choose Wi-Fi Direct or Car hotspot")
             }
 
@@ -110,6 +124,7 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
             // channel degrades to the configuration's, the one this manager requested,
             // or 36 — in that order — and the phone joining is the real verification.
             val advertisedChannel = when {
+                verifiedChannel != null -> verifiedChannel
                 liveRadio != null -> wifiFrequencyMhzToChannel(liveRadio.frequencyMHz)
                     ?: configuration.channel.takeIf { it > 0 } ?: requestedChannel ?: 36
                 configuration.channel > 0 -> configuration.channel
@@ -251,6 +266,11 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
                             if (configuration.bandLabel == "5 GHz") 1500 else 6000
                         )
                     ) {
+                        if (allowTwoPointFour) {
+                            // Android 9 may only return auto channel 0. Never invent a 5 GHz
+                            // channel for its 2.4 GHz AP when the driver cannot report it.
+                            throw IOException("LocalOnlyHotspot AP channel unavailable (${reading.error ?: "radio did not settle"}); use the car hotspot or export diagnostics")
+                        }
                         if (configuration.bandLabel == "5 GHz") {
                             // Every BYD Qualcomm tested answers WEXT with errno 95 and
                             // Android 11/12 has no live LOHS channel callback, so an
@@ -349,9 +369,11 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
 
             override fun onStopped() {
                 var lockToRelease: WifiManager.MulticastLock? = null
+                var notifyStop = false
                 synchronized(stateLock) {
                     if (startAttempt === attempt) attempt.stopped = true
-                    if (reservation === attempt.reservation) {
+                    if (!closed && reservation != null && reservation === attempt.reservation && !stopped) {
+                        notifyStop = true
                         stopped = true
                         lockToRelease = multicastLock
                         multicastLock = null
@@ -359,6 +381,7 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
                     stateLock.notifyAll()
                 }
                 releaseMulticastLock(lockToRelease)
+                if (notifyStop) onUnexpectedStop()
             }
         }
 

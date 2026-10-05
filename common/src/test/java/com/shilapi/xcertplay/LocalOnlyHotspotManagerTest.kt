@@ -25,6 +25,8 @@ import java.util.concurrent.Executor
 @Config(sdk = [32], manifest = Config.NONE,
     shadows = [LocalOnlyHotspotManagerTest.Radio::class, LocalOnlyHotspotManagerTest.Reservation::class])
 class LocalOnlyHotspotManagerTest {
+    @Test @Config(sdk = [28]) fun android9CancellationClosesLateReservation() = lateReservation(cancel = true)
+    @Test @Config(sdk = [28]) fun android9TimeoutClosesLateReservation() = lateReservation(cancel = false)
     @Test fun cancelledStartupStillClosesALateSystemReservation() = lateReservation(cancel = true)
     @Test fun timedOutStartupStillClosesALateSystemReservation() = lateReservation(cancel = false)
 

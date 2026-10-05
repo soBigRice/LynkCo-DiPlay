@@ -1,0 +1,10 @@
+<resources>
+    <bool name="config_lynk_local_hotspot">false</bool>
+    <!-- Overridden by the LYNK OS N APK; upstream BYD behavior stays enabled. -->
+    <bool name="config_byd_integration">true</bool>
+    <bool name="config_manual_hotspot_strict_interface">false</bool>
+    <bool name="config_manual_hotspot_prefer_ipv4">false</bool>
+    <bool name="config_verified_usb_configuration">false</bool>
+    <bool name="config_release_iphone_usb_drivers">false</bool>
+    <string name="config_oem_label" translatable="false">BYD</string>
+</resources>

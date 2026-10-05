@@ -1,0 +1,15 @@
+<resources>
+    <string name="auto_hotspot_title">Automatic temporary hotspot</string>
+    <string name="auto_hotspot_intro">DiPlay creates the hotspot and sends its details to your iPhone. No name or password to enter.</string>
+    <string name="auto_hotspot_notice">For a 2.4 GHz session, car Bluetooth is suspended after Wi-Fi handoff and restored when CarPlay ends. Other Bluetooth devices disconnect during that session.</string>
+    <string name="auto_hotspot_start">Use automatic hotspot</string>
+    <string name="auto_hotspot_manual">Use car hotspot instead</string>
+    <string name="auto_hotspot_ready">Waiting · automatic hotspot</string>
+    <string name="auto_hotspot_creating">Creating a temporary hotspot and checking its real network settings.</string>
+    <string name="auto_hotspot_sent">Hotspot details were sent automatically. Keep iPhone Wi-Fi and Bluetooth on and accept its CarPlay prompt.</string>
+    <string name="auto_hotspot_conflict">Turn off the car’s existing shared hotspot, then retry. Or choose the car hotspot option.</string>
+    <string name="auto_hotspot_failed">The car could not provide a usable temporary hotspot. Open connection settings to use the car hotspot, or export the report.</string>
+    <string name="auto_hotspot_location">Turn on system Location and allow location access for DiPlay, then retry. Android 9 requires this to create a hotspot.</string>
+    <string name="auto_bluetooth_restoring">Restoring car Bluetooth…</string>
+    <string name="auto_bluetooth_restore_failed">Bluetooth was not restored. Turn it on in car settings, then return to DiPlay.</string>
+</resources>

@@ -42,6 +42,10 @@ sealed interface CarPlayBonjourEvent {
     }
     data class Resolved(val endpoint: CarPlayBonjourEndpoint) : CarPlayBonjourEvent
 
+    data class Failure(val stage: Stage, val errorClass: String) : CarPlayBonjourEvent {
+        enum class Stage { INTERFACE_SERVICE, NSD_SERVICE, MDNS_RECOVERY }
+    }
+
     data class Probed(
         val endpoint: CarPlayBonjourEndpoint,
         val attempts: Int,
@@ -55,6 +59,7 @@ fun CarPlayBonjourEvent.diagnosticSummary(): String = when (this) {
     is CarPlayBonjourEvent.Discovery -> "control discovery stage=$stage ipv4=$ipv4Count ipv6=$ipv6Count"
     is CarPlayBonjourEvent.Resolved ->
         "control resolved family=${if (':' in endpoint.host) "IPv6" else "IPv4"} port=${endpoint.port}"
+    is CarPlayBonjourEvent.Failure -> "control failure stage=$stage error=$errorClass"
     is CarPlayBonjourEvent.Probed -> {
         val status = statusLine?.let { Regex("^HTTP/\\d(?:\\.\\d)? (\\d{3})(?: |$)").find(it)?.groupValues?.get(1) }
         "control probe attempts=$attempts status=${status ?: "none"} error=${error?.javaClass?.simpleName ?: "none"}"
@@ -93,11 +98,12 @@ object CarPlayBonjourProtocol {
         require('\r' !in unbracketedHost && '\n' !in unbracketedHost) {
             "host must not contain a line break"
         }
-        val receiverDeviceId = deviceId.replace(":", "")
-        require(receiverDeviceId.isNotEmpty()) { "deviceId must contain a hexadecimal value" }
-        require('\r' !in receiverDeviceId && '\n' !in receiverDeviceId) {
-            "deviceId must not contain a line break"
+        require(deviceId.matches(Regex("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}|[0-9a-f]{12}"))) {
+            "deviceId must be a 48-bit hexadecimal MAC address"
         }
+        // CarPlay control invites use the MAC's decimal integer value (LIVI/CatPlay),
+        // unlike the colon-separated deviceid in the Bonjour TXT record.
+        val receiverDeviceId = deviceId.replace(":", "").toLong(16).toString()
         val hostHeader = if (':' in unbracketedHost) {
             "[$unbracketedHost]:$port"
         } else {
@@ -130,7 +136,7 @@ class CarPlayBonjour(
         .getSystemService(Context.NSD_SERVICE) as NsdManager
     private val services = LinkedBlockingQueue<NsdServiceInfo>()
     private val interfaceServices = LinkedBlockingQueue<Pair<CarPlayBonjourEndpoint, InetAddress>>()
-    private val discoveryEvents = LinkedBlockingQueue<CarPlayBonjourEvent.Discovery>(32)
+    private val discoveryEvents = LinkedBlockingQueue<CarPlayBonjourEvent>(32)
     private val seenServices = ConcurrentHashMap.newKeySet<String>()
     private val lifecycleLock = Any()
     private val localAdvertisedAddress = advertisedHostAddress()
@@ -242,6 +248,11 @@ class CarPlayBonjour(
                     }
                     val dns = JmDNS.create(address, "carplay-${config.deviceId.replace(":", "")}")
                     interfaceMdns = dns
+                    dns.setDelegate { _, _ ->
+                        if (!closed) discoveryEvents.offer(CarPlayBonjourEvent.Failure(
+                            CarPlayBonjourEvent.Failure.Stage.MDNS_RECOVERY, "IOException",
+                        ))
+                    }
                     dns.addServiceListener("$CARPLAY_CONTROL_SERVICE_TYPE.local.", interfaceListener)
                     dns.registerService(ServiceInfo.create(
                         "$AIRPLAY_SERVICE_TYPE.local.", config.deviceName, config.port,
@@ -358,7 +369,10 @@ class CarPlayBonjour(
                 } catch (_: InterruptedException) {
                     return
                 } catch (error: Exception) {
-                    if (!closed) Log.w(TAG, "Interface CarPlay service handling failed", error)
+                    if (!closed) {
+                        Log.w(TAG, "Interface CarPlay service handling failed", error)
+                        emit(CarPlayBonjourEvent.Failure(CarPlayBonjourEvent.Failure.Stage.INTERFACE_SERVICE, error.javaClass.simpleName))
+                    }
                 }
                 continue
             }
@@ -373,7 +387,10 @@ class CarPlayBonjour(
             } catch (_: InterruptedException) {
                 return
             } catch (error: Exception) {
-                if (!closed) Log.w(TAG, "CarPlay control service handling failed", error)
+                if (!closed) {
+                    Log.w(TAG, "CarPlay control service handling failed", error)
+                    emit(CarPlayBonjourEvent.Failure(CarPlayBonjourEvent.Failure.Stage.NSD_SERVICE, error.javaClass.simpleName))
+                }
             }
         }
     }
