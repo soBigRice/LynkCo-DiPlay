@@ -27,9 +27,9 @@ class Iap2WirelessControlClient(
         timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
         locationProvider: Iap2LocationProvider? = null,
         vehicleStatusProvider: VehicleStatusProvider? = null,
-        locationRequest: Iap2LocationRequest? = null,
-        continueLocationRequest: Boolean = false,
         onReady: () -> Unit = {},
+        beforeStartSession: () -> Unit = {},
+        onStartSessionSent: (Iap2StartSessionSent) -> Unit = {},
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
         initialHandshakeTimeoutMillis: Long = 0,
@@ -93,9 +93,10 @@ class Iap2WirelessControlClient(
         var postTransportWiFiConfigurationsSent = 0
         var transportNotificationSeen = false
         var wirelessCarPlayAvailableSeen = false
-        val location = Iap2LocationReporter(locationProvider, onProgress, locationRequest, continueLocationRequest)
+        val location = Iap2LocationReporter(locationProvider, onProgress)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
-        while (true) {
+        try {
+            while (true) {
                 val remaining = handshake.bound(remainingMillis(deadlineNanos), poll = true)
                 if (remaining == 0L) {
                     return Iap2WirelessControlResult(
@@ -182,20 +183,9 @@ class Iap2WirelessControlClient(
 
                     CARPLAY_AVAILABILITY -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
-                        val diagnostic = try {
-                            val availability = Iap2CarPlayMessages.availability(incoming)
-                            "wired=${availability.wired?.available ?: "unknown"} " +
-                                "wireless=${availability.wireless?.available ?: "unknown"} " +
-                                "wiredTransportPresent=${!availability.wired?.identifier.isNullOrEmpty()} " +
-                                "radioTransportPresent=${!availability.wireless?.identifier.isNullOrEmpty()}"
-                        } catch (_: Iap2ProtocolException) {
-                            // Unknown optional fields must not turn diagnostics into a start gate.
-                            "decode=unrecognized"
-                        }
-                        onProgress("CONNECTION_DIAGNOSTIC iap2 availability $diagnostic")
-                        // LIVI responds to 0x4300 even before wireless availability is true.
-                        // This status is diagnostic, not a permission decision or a start gate.
-                        send(carPlayStartSession(endpoint))
+                        onProgress(carPlayAvailabilityDiagnostic(incoming))
+                        beforeStartSession()
+                        sendStartSession(endpoint, { send(it) }, onStartSessionSent)
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
                         onProgress("iap2 tx=0x4301 carplay-start-session")
@@ -256,6 +246,9 @@ class Iap2WirelessControlClient(
                         forwardedFrames++
                     }
                 }
+            }
+        } finally {
+            locationProvider?.stop()
         }
     }
 
@@ -274,13 +267,24 @@ class Iap2WirelessControlClient(
         private const val MAX_POST_TRANSPORT_WIFI_CONFIGURATION_SENDS = 2
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
-        /** Reference-compatible 0x5703 body. BSSID is omitted when the platform does not expose it. */
+        /** Malformed optional availability metadata must not change existing control behavior. */
+        internal fun carPlayAvailabilityDiagnostic(frame: Iap2Frame): String = try {
+            val value = Iap2CarPlayMessages.availability(frame)
+            "iap2 availability wired=${value.wired?.available ?: "unknown"} " +
+                "wireless=${value.wireless?.available ?: "unknown"} " +
+                "themeAssets=${value.themeAssets?.available ?: "unknown"}"
+        } catch (error: Exception) {
+            "iap2 availability decode=failed failureClass=${error.javaClass.simpleName}"
+        }
+
+        /** Optional AP hint is independent of the AirPlay receiver identity. */
         fun accessoryWiFiConfiguration(endpoint: Iap2WirelessCarPlayEndpoint): Iap2Frame =
             Iap2WirelessMessages.accessoryWiFiConfiguration(
                 ssid = endpoint.ssid,
                 passphrase = endpoint.passphrase,
                 channel = endpoint.channel,
                 securityType = endpoint.security.wireValue,
+                bssid = endpoint.accessPointBssid,
             )
 
         /** Wireless 0x4301 reply carrying the receiver address, port and pairing identity. */
@@ -345,10 +349,13 @@ class Iap2WirelessCarPlayEndpoint(
     val deviceIdentifier: String,
     val publicKey: String,
     val sourceVersion: String,
+    accessPointBssid: ByteArray? = null,
 ) {
     val ipAddresses: List<String> = ipAddresses.toList()
+    val accessPointBssid: ByteArray? = accessPointBssid?.copyOf()
 
     init {
+        require(accessPointBssid == null || accessPointBssid.size == 6) { "AP address must contain six bytes" }
         require(ssid.isNotBlank()) { "ssid is required and must not be blank" }
         require('\u0000' !in ssid) { "ssid must not contain U+0000" }
         require('\u0000' !in passphrase) { "passphrase must not contain U+0000" }
@@ -393,3 +400,15 @@ data class Iap2WirelessControlResult(
     val postTransportWiFiConfigurationsSent: Int,
     val wirelessCarPlayAvailableSeen: Boolean,
 )
+
+/** 仅在 StartSession 发送成功后产生，不通过日志驱动超时。 */
+data class Iap2StartSessionSent(val sentAtNanos: Long)
+
+internal fun sendStartSession(
+    endpoint: Iap2WirelessCarPlayEndpoint,
+    send: (Iap2Frame) -> Unit,
+    onSent: (Iap2StartSessionSent) -> Unit,
+) {
+    send(Iap2WirelessControlClient.carPlayStartSession(endpoint))
+    onSent(Iap2StartSessionSent(System.nanoTime()))
+}

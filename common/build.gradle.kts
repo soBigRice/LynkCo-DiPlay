@@ -24,6 +24,8 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // The UI suite covers several SDKs and locale-specific resource sandboxes.
+        unitTests.all { it.maxHeapSize = "1g" }
     }
 }
 
@@ -42,4 +44,6 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("org.mockito:mockito-core:5.20.0")
+    testImplementation(libs.jmdns)
 }

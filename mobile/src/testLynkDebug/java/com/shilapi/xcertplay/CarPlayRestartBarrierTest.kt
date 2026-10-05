@@ -53,6 +53,9 @@ class CarPlayRestartBarrierTest {
             val size = sizeType.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
                 .apply { isAccessible = true }.newInstance(1280, 720)
             field(activity, "activeDisplaySize").set(activity, size)
+            // Model a previously connected session; resume rechecks these prerequisites.
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
             field(activity, "controller").set(activity, old)
             field(activity, "sink").set(activity, sink)
             field(background, "owner").set(background, activity)

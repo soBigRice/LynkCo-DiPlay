@@ -7,9 +7,12 @@ import android.view.KeyEvent
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -91,6 +94,25 @@ class CarPlayMediaCallbackTest {
         assertEquals(artwork, metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))
     }
 
+    @Test
+    fun aPendingArtworkTransferKeepsThePreviousArt() {
+        val previous = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        val cached = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+
+        assertSame(previous, CarPlayMediaKeys.nextArtwork(7, emptyMap(), previous))
+        assertSame(cached, CarPlayMediaKeys.nextArtwork(7, mapOf(7 to cached), previous))
+        assertNull(CarPlayMediaKeys.nextArtwork(7, mapOf(7 to null), previous))
+        assertNull(CarPlayMediaKeys.nextArtwork(null, mapOf(7 to cached), previous))
+    }
+
+    @Test
+    fun thePlaceholderRastersAtArtworkSize() {
+        val placeholder = CarPlayMediaKeys.placeholderArt(RuntimeEnvironment.getApplication())
+
+        assertEquals(384, placeholder?.width)
+        assertEquals(384, placeholder?.height)
+    }
+
     private fun press(keyCode: Int, repeat: Int = 0) {
         for (count in 0..repeat) {
             callback.onMediaButtonEvent(button(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, keyCode, count)))
@@ -98,4 +120,14 @@ class CarPlayMediaCallbackTest {
     }
 
     private fun button(event: KeyEvent) = Intent(Intent.ACTION_MEDIA_BUTTON).putExtra(Intent.EXTRA_KEY_EVENT, event)
+
+    @Test
+    fun positionAndPlayStateDoNotRepublishMetadata() {
+        val song = CarPlayNowPlaying(title = "Song", artist = "Artist", artworkTransferId = 7, elapsedMillis = 1_000, playing = true)
+        assertEquals(false, CarPlayMediaKeys.metadataChanged(song, song.copy(elapsedMillis = 1_450)))
+        assertEquals(false, CarPlayMediaKeys.metadataChanged(song, song.copy(playing = false)))
+        assertEquals(true, CarPlayMediaKeys.metadataChanged(song, song.copy(title = "Next")))
+        assertEquals(true, CarPlayMediaKeys.metadataChanged(song, song.copy(artworkTransferId = 8)))
+        assertEquals(true, CarPlayMediaKeys.metadataChanged(CarPlayNowPlaying(), song))
+    }
 }

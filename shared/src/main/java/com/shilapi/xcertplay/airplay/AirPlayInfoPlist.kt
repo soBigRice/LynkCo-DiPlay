@@ -24,6 +24,10 @@ object AirPlayInfoPlist {
     private const val PRIORITY_NICE_TO_HAVE = 100
     private const val CONSTRAINT_ANYTIME = 100
 
+    /** Discovery and /info must describe the same receiver capabilities. */
+    fun features(config: AirPlayConfig): Long =
+        if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES
+
     fun build(config: AirPlayConfig): Map<String, Any?> {
         val displays = arrayListOf<Any?>(
             displayEntry(config.main, STREAM_TYPE_MAIN_SCREEN, MAIN_UUID),
@@ -32,7 +36,7 @@ object AirPlayInfoPlist {
 
         val info = linkedMapOf<String, Any?>(
             "sourceVersion" to config.sourceVersion,
-            "features" to if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES,
+            "features" to features(config),
             "statusFlags" to 4L,
             "model" to config.model,
             "manufacturer" to config.manufacturer,
@@ -71,7 +75,7 @@ object AirPlayInfoPlist {
         if (config.hevc) info["hevcInfo"] = emptyMap<String, Any?>()
         if (config.videoInCar) {
             // The iPhone tears down a session that enables videoPlayback without this key.
-            val legacy = if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES
+            val legacy = features(config)
             info["videoPlaybackInfo"] = VideoInCar.info(legacy, VideoInCar.allowed)
         }
         return info

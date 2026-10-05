@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
+import com.shilapi.xcertplay.transport.VehicleGear
 import com.shilapi.xcertplay.transport.withVehicleStatusFrom
 import org.junit.Assert.*
 import org.junit.Test
@@ -26,6 +27,8 @@ class BydBatteryReadinessTest {
     fun delayedAdbApprovalPrimesTheNextConnectionFromTheSettingsCheck() {
         val unavailable = BydAdbAccess.readStatus(context) { null }
         assertNull(unavailable.batteryPercent)
+        assertNull(unavailable.speedKmh)
+        assertNull(unavailable.gear)
         assertFalse(identification.withVehicleStatusFrom(BydBatteryStatus).vehicleStatusEnabled)
 
         // A successful settings check after approval must prime the provider, not just its label.
@@ -36,11 +39,15 @@ class BydBatteryReadinessTest {
                 "1246765118" -> "00000096"
                 "882901008" -> "41c8cccd"
                 "876609560" -> "0000000f"
+                "-1807745016" -> "42100000"
+                "555745336" -> "00000001"
                 else -> "00000003"
             }
             "Result: Parcel(00000000 $bits   '........')"
         }
         assertEquals(25.0, ready.batteryPercent!!, 0.001)
+        assertEquals(36.0, ready.speedKmh!!, 0.001)
+        assertEquals(VehicleGear.PARK, ready.gear)
         assertTrue(identification.withVehicleStatusFrom(BydBatteryStatus).vehicleStatusEnabled)
         assertEquals(150, BydBatteryStatus.snapshot()!!.rangeKm)
         reconnectAfterIdleRefreshesWithoutWaitingForThePeriodicTick()

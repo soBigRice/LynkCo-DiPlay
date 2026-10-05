@@ -27,6 +27,8 @@ class BydWheelSpeedTest {
         assertEquals(VehicleGear.REVERSE, BydWheelSpeed.gear("Result: Parcel(00000000 00000002   '........')"))
         assertEquals(VehicleGear.NEUTRAL, BydWheelSpeed.gear("Result: Parcel(00000000 00000003   '........')"))
         assertEquals(VehicleGear.DRIVE, BydWheelSpeed.gear("Result: Parcel(00000000 00000004   '........')"))
+        assertEquals(VehicleGear.DRIVE, BydWheelSpeed.gear("Result: Parcel(00000000 00000005   '........')"))
+        assertEquals(VehicleGear.DRIVE, BydWheelSpeed.gear("Result: Parcel(00000000 00000006   '........')"))
         assertNull(BydWheelSpeed.gear("Result: Parcel(00000000 00000000   '........')"))
     }
 }

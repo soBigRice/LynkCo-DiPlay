@@ -23,6 +23,7 @@ class CarPlayVpnRoutingTest {
         val capture = Shadow.extract<RouteCapture>(builder)
         assertTrue("IPv4 must fall through to the head unit network", OsConstants.AF_INET in capture.allowedFamilies)
         assertEquals(listOf(InetAddress.getByName("fe80::2") to 64), capture.addresses)
+        assertEquals(listOf(service.packageName), capture.allowedApplications)
         assertEquals(1, capture.routes.size)
         assertEquals(64, capture.routes.single().second)
         assertTrue(capture.routes.single().first.isLinkLocalAddress)
@@ -37,6 +38,10 @@ class CarPlayVpnRoutingTest {
         val addresses = mutableListOf<Pair<InetAddress, Int>>()
         val routes = mutableListOf<Pair<InetAddress, Int>>()
         val allowedFamilies = mutableSetOf<Int>()
+        val allowedApplications = mutableListOf<String>()
+        @Implementation fun addAllowedApplication(packageName: String): VpnService.Builder {
+            allowedApplications += packageName; return builder
+        }
         @Implementation fun addAddress(address: InetAddress, prefix: Int): VpnService.Builder {
             addresses += address to prefix; return builder
         }

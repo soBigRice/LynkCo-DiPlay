@@ -19,6 +19,11 @@ class CarPlayBonjourTest {
         assertFalse(failed.contains("Private phone"))
         assertEquals("control failure stage=INTERFACE_SERVICE error=IOException",
             CarPlayBonjourEvent.Failure(CarPlayBonjourEvent.Failure.Stage.INTERFACE_SERVICE, "IOException").diagnosticSummary())
+        assertEquals("control probe stage=TCP_CONNECTED attempt=2 family=IPv6",
+            CarPlayBonjourEvent.ProbeProgress(CarPlayBonjourEvent.ProbeProgress.Stage.TCP_CONNECTED, 2, true).diagnosticSummary())
+        assertEquals("control probe failed after=REQUEST_SENT attempt=1 failureClass=SocketTimeoutException",
+            CarPlayBonjourEvent.ProbeFailed(CarPlayBonjourEvent.ProbeProgress.Stage.REQUEST_SENT, 1,
+                java.net.SocketTimeoutException("Private phone secret")).diagnosticSummary())
     }
     private val config = AirPlayConfig(
         deviceName = "xcertplay",
@@ -35,11 +40,11 @@ class CarPlayBonjourTest {
     )
 
     @Test
-    fun airPlayTxtRecordsMatchLivi() {
+    fun airPlayTxtRecordsUseCurrentReceiverCapabilities() {
         assertEquals(
             linkedMapOf(
                 "deviceid" to "02:00:00:00:00:02",
-                "features" to "0x44540380,0x61",
+                "features" to "0x5653aee2,0x61",
                 "flags" to "0x4",
                 "model" to "LIVI",
                 "srcvers" to "366.0",
@@ -71,6 +76,17 @@ class CarPlayBonjourTest {
                 CarPlayBonjourProtocol.connectProbeRequest("192.168.2.2", 7000, "366.0", invalid)
             }
         }
+    }
+
+    @Test fun discoveryFeaturesAgreeWithInfoForAudioEnabledAndDisabled() {
+        for (disabled in listOf(false, true)) {
+            val receiver = config.copy(disableAudioOutput = disabled)
+            val parts = CarPlayBonjourProtocol.airPlayTxtRecords(receiver, identity).getValue("features")
+                .split(',').map { it.removePrefix("0x").toLong(16) }
+            val decoded = parts[0] or ((parts.getOrElse(1) { 0L }) shl 32)
+            assertEquals(com.shilapi.xcertplay.airplay.AirPlayInfoPlist.build(receiver)["features"], decoded)
+        }
+        assertEquals("0xffffffff", CarPlayBonjourProtocol.featuresTxt(0xffffffffL))
     }
 
     @Test

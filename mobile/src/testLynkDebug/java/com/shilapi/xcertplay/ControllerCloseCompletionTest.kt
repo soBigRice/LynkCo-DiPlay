@@ -24,6 +24,33 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class ControllerCloseCompletionTest {
+    @Test fun oldWirelessCallbacksCannotCloseOrRestartANewerGeneration() {
+        val controller = controller(transport = CarPlayTransport.WIRELESS)
+        val closes = AtomicInteger()
+        val hotspot = object : com.shilapi.xcertplay.network.WirelessHotspotManager {
+            override fun start(timeoutMillis: Long): com.shilapi.xcertplay.network.WirelessHotspotInfo =
+                throw AssertionError("A stale callback must not start a hotspot")
+            override fun close() { closes.incrementAndGet() }
+        }
+        val generation = field(controller, "wirelessGeneration").get(controller) as AtomicInteger
+        generation.set(2)
+        field(controller, "hotspot").set(controller, hotspot)
+        try {
+            controller.javaClass.getDeclaredMethod("closeWirelessStack", CarPlayVpnService::class.java, Integer::class.java)
+                .apply { isAccessible = true }.invoke(controller, null, 1)
+            controller.javaClass.getDeclaredMethod("restartWireless", Integer::class.java)
+                .apply { isAccessible = true }.invoke(controller, 1)
+            controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Integer::class.java)
+                .apply { isAccessible = true }.invoke(controller, java.io.IOException("old attempt"), 1)
+            assertEquals(2, generation.get())
+            assertEquals(0, closes.get())
+            assertSame(hotspot, field(controller, "hotspot").get(controller))
+        } finally {
+            controller.close()
+            assertTrue(controller.awaitClosed(2000))
+        }
+    }
+
     @Test fun attachmentPublishedAfterFirstDetachIsReleasedBeforeCompletion() {
         val firstDetach = CountDownLatch(1)
         val controller = controller(object : AirPlaySessionListener {
@@ -122,8 +149,9 @@ class ControllerCloseCompletionTest {
         service.onDestroy()
     }
 
-    private fun controller(listener: AirPlaySessionListener = object : AirPlaySessionListener {}) = CarPlayController(RuntimeEnvironment.getApplication(),
-        CarPlayRuntimeConfig(mfiTarget = MfiTarget.LOCAL,
+    private fun controller(listener: AirPlaySessionListener = object : AirPlaySessionListener {},
+        transport: CarPlayTransport = CarPlayTransport.WIRED) = CarPlayController(RuntimeEnvironment.getApplication(),
+        CarPlayRuntimeConfig(mfiTarget = MfiTarget.LOCAL, transport = transport,
             identification = Iap2IdentificationConfig("test", "test", "test", "1", "1", "1", 3)),
         AirPlayConfig(deviceName = "test", deviceId = "02:00:00:00:00:02", btMac = "02:00:00:00:00:01",
             sourceVersion = "1", main = AirPlayDisplayConfig(widthPixels = 1280, heightPixels = 720)),

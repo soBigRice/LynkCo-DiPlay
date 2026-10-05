@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.orchestration
 
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.UsbDeviceId
+import com.shilapi.xcertplay.network.WifiP2pChannels
 import java.net.Inet6Address
 import java.net.InetAddress
 
@@ -21,6 +22,7 @@ enum class WirelessHotspotMode {
     WIFI_P2P,
     LOCAL_ONLY_HOTSPOT,
     MANUAL,
+    EXISTING_WIFI,
 }
 
 enum class ManualHotspotBand {
@@ -65,6 +67,9 @@ class CarPlayRuntimeConfig(
     val locationReportingEnabled: Boolean = false,
     val initialHandshakeTimeoutMillis: Long = 0,
     val headUnitBluetoothAddress: String? = null,
+    val wifiP2pPreferredChannel: Int = WifiP2pChannels.AUTO,
+    val existingWifiSsid: String = "",
+    val existingWifiPassphrase: String = "",
 ) {
     init {
         require(initialHandshakeTimeoutMillis in 0..300_000L)
@@ -97,6 +102,16 @@ class CarPlayRuntimeConfig(
             "Remote MFi token must not contain U+0000"
         }
         // Only a wireless session starts the hotspot; a USB session must not fail on unused settings.
+        if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.EXISTING_WIFI) {
+            require(ManualHotspotValidation.error(existingWifiSsid, existingWifiPassphrase) == null) {
+                "Existing Wi-Fi requires an SSID of at most 32 UTF-8 bytes and an empty (open) or 8–63 character WPA2 password"
+            }
+        }
+        if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P) {
+            require(WifiP2pChannels.isValid(wifiP2pPreferredChannel)) {
+                "Unsupported Wi-Fi Direct channel: $wifiP2pPreferredChannel"
+            }
+        }
         if (transport == CarPlayTransport.WIRELESS && wirelessHotspotMode == WirelessHotspotMode.MANUAL) {
             val ssid = manualHotspotSsid
             require(!ssid.isNullOrBlank()) {

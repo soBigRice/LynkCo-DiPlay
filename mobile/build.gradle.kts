@@ -19,8 +19,8 @@ android {
         applicationId = "com.shihab.diplay"
         minSdk = 28
         targetSdk = 37
-        versionCode = 31
-        versionName = "0.2.10"
+        versionCode = 32
+        versionName = "0.2.12"
 
     }
 
@@ -47,7 +47,7 @@ android {
         create("lynkDebug") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".lynk"
-            versionNameSuffix = "-lynk-osn2-test13a"
+            versionNameSuffix = "-lynk-osn2-test14"
             matchingFallbacks += "debug"
         }
         release {

@@ -13,14 +13,20 @@ object CarPlayClusterDisplay {
 
     /**
      * What the dashboard shows: one of the cluster contents the iPhone lists in `altScreenURLs`.
-     * On the tested car the turn card needed 0–5 kbit/s against 0.3–4 Mbit/s for the map, and
-     * "instrumentcluster" drew the map with the iOS glass turn card on it.
+     * On the tested car the iPhone glass turn card needed 0–5 kbit/s against 0.3–4 Mbit/s for the map.
+     * MAP_WITH_CUSTOM_CARD asks for the map stream so DiPlay can draw a movable card on top.
      */
     enum class Content(val url: String) {
         MAP(MAP_URL),
         TURN_CARD("maps:/car/instrumentcluster/instructioncard"),
         INSTRUMENTS("maps:/car/instrumentcluster"),
+        MAP_WITH_CUSTOM_CARD(MAP_URL),
     }
+
+    fun usesCustomTurnCard(content: Content): Boolean = content == Content.MAP_WITH_CUSTOM_CARD
+
+    fun usesOfficialTurnCard(content: Content): Boolean =
+        content == Content.TURN_CARD || content == Content.INSTRUMENTS
 
     /**
      * Where the car marker goes, as percent of the panel (left, top, right, bottom). Measured on a
@@ -31,14 +37,20 @@ object CarPlayClusterDisplay {
      */
     val SAFE_AREA_PERCENT = AirPlayInsets(top = 16, bottom = 25, left = 35, right = 36)
 
+    /** Balanced margins for virtual full-screen/16:9 streams (e.g. desktop cards/widgets). */
+    val VIRTUAL_SAFE_AREA_PERCENT = AirPlayInsets(top = 8, bottom = 8, left = 8, right = 8)
+
     /** The driver can move the marker from that centre, in steps of 10 % of the panel. */
     const val MARKER_STEP_PERCENT = 10
     val horizontalSteps = -4..4 // negative = left
     val verticalSteps = -3..3 // negative = up
 
     /** Where the car marker lands, in percent of the panel (x from the left, y from the top). */
-    fun markerPercent(horizontalStep: Int, verticalStep: Int): Pair<Double, Double> {
-        val area = SAFE_AREA_PERCENT
+    fun markerPercent(
+        horizontalStep: Int,
+        verticalStep: Int,
+        area: AirPlayInsets = SAFE_AREA_PERCENT,
+    ): Pair<Double, Double> {
         val x = (area.left + 100 - area.right) / 2.0 + horizontalStep.coerceIn(horizontalSteps) * MARKER_STEP_PERCENT
         val y = (area.top + 100 - area.bottom) / 2.0 + verticalStep.coerceIn(verticalSteps) * MARKER_STEP_PERCENT
         return x.coerceIn(MARKER_MARGIN, 100 - MARKER_MARGIN) to y.coerceIn(MARKER_MARGIN, 100 - MARKER_MARGIN)
@@ -63,6 +75,7 @@ object CarPlayClusterDisplay {
         horizontalStep: Int = 0,
         verticalStep: Int = 0,
         content: Content = Content.MAP,
+        baseSafeArea: AirPlayInsets = SAFE_AREA_PERCENT,
     ): AirPlayDisplayConfig {
         // Height rounds to a multiple of 8 and width follows it, so the panel's aspect is kept
         // (83 % of 1920x720 gives exactly 1600x600). The cluster scales the stream to the panel.
@@ -78,16 +91,22 @@ object CarPlayClusterDisplay {
             primaryInputDevice = 0,
             features = 0,
             initialUrl = content.url,
-            safeArea = safeArea(width, height, horizontalStep, verticalStep),
+            safeArea = safeArea(width, height, horizontalStep, verticalStep, baseSafeArea),
             safeAreaDrawOutside = true,
         )
     }
 
     // The safe area keeps its measured size around the marker and shrinks only where the marker
     // comes close to a panel edge, so the marker always sits at its centre.
-    private fun safeArea(width: Int, height: Int, horizontalStep: Int, verticalStep: Int): AirPlayInsets {
-        val area = SAFE_AREA_PERCENT
-        val (x, y) = markerPercent(horizontalStep, verticalStep)
+    private fun safeArea(
+        width: Int,
+        height: Int,
+        horizontalStep: Int,
+        verticalStep: Int,
+        baseSafeArea: AirPlayInsets = SAFE_AREA_PERCENT,
+    ): AirPlayInsets {
+        val area = baseSafeArea
+        val (x, y) = markerPercent(horizontalStep, verticalStep, area)
         val halfWidth = minOf((100 - area.left - area.right) / 2.0, x, 100 - x)
         val halfHeight = minOf((100 - area.top - area.bottom) / 2.0, y, 100 - y)
         return AirPlayInsets(

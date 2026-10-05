@@ -15,7 +15,7 @@ class Iap2WirelessHandshakeReplayTest {
     @Test fun unrecognizedOptionalAvailabilityDoesNotSuppressStart() {
         val replay = replay("000900010005000002")
         assertEquals(1, replay.sent.count { it.messageId == 0x4301 })
-        assertTrue(replay.progress.any { it.contains("availability decode=unrecognized") })
+        assertTrue(replay.progress.any { it.contains("availability decode=failed failureClass=Iap2ProtocolException") })
     }
 
     @Test fun falseUnknownAndWiredOnlyAvailabilityStillReceiveOneStartRequest() {

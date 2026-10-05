@@ -58,11 +58,12 @@ class CarPlayVpnGenerationTest {
             service.detach()
             assertEquals(CarPlayVpnService.AttachResult.Started,
                 service.attachWireless(address, config, identity, PairingStore(), null, listener, media))
+            val beforeOldAccept = logs.toList()
             resume.countDown()
             worker.join(2000)
             assertFalse(worker.isAlive)
             assertTrue("Old accepted socket must be rejected", accepted.get().isClosed)
-            assertTrue("Old traffic must not reach the new listener", logs.isEmpty())
+            assertEquals("Old traffic must not reach the new listener", beforeOldAccept, logs.toList())
             assertTrue(service.isAttached())
             Socket(address, requireNotNull(service.boundPort())).use {
                 assertTrue("New listener must still accept its own socket", currentAccepted.await(2, TimeUnit.SECONDS))

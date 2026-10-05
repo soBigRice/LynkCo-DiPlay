@@ -20,6 +20,14 @@ internal object BydWheelSpeed {
     const val SPEED = "service call autoservice 7 i32 1013 i32 -1807745016" // float km/h
     const val GEAR = "service call autoservice 5 i32 1011 i32 555745336" // 1 P, 2 R, 3 N, 4 D
 
+    fun speedCommand(context: Context): String = if (BydOutputSettings.legacyVehicleProbe(context)) {
+        BydVehicleFieldStore.load(context)?.result(BydVehicleField.SPEED)?.address?.command() ?: SPEED
+    } else SPEED
+
+    fun gearCommand(context: Context): String = if (BydOutputSettings.legacyVehicleProbe(context)) {
+        BydVehicleFieldStore.load(context)?.result(BydVehicleField.GEAR)?.address?.command() ?: GEAR
+    } else GEAR
+
     fun metersPerSecond(output: String?): Double? {
         val kmh = BydParcel.value(output)?.let { java.lang.Float.intBitsToFloat(it).toDouble() } ?: return null
         return if (kmh in 0.0..300.0) kmh / 3.6 else null
@@ -29,7 +37,7 @@ internal object BydWheelSpeed {
         1 -> VehicleGear.PARK
         2 -> VehicleGear.REVERSE
         3 -> VehicleGear.NEUTRAL
-        4 -> VehicleGear.DRIVE
+        4, 5, 6 -> VehicleGear.DRIVE // M and S are forward selector positions on older SDKs.
         else -> null
     }
 }
@@ -85,13 +93,13 @@ internal object BydWheelSpeedSource : VehicleSpeedSource {
     private fun poll() {
         val app = context ?: return
         if (reads++ % GEAR_EVERY_READS == 0) {
-            BydWheelSpeed.gear(shell.run(app, BydWheelSpeed.GEAR))?.let { next ->
+            BydWheelSpeed.gear(shell.run(app, BydWheelSpeed.gearCommand(app)))?.let { next ->
                 val changed = synchronized(this) { (gear != next).also { gear = next } }
                 if (changed) Log.i(TAG, "gear $next")
             }
         }
         val before = SystemClock.elapsedRealtime()
-        val speed = BydWheelSpeed.metersPerSecond(shell.run(app, BydWheelSpeed.SPEED)) ?: return
+        val speed = BydWheelSpeed.metersPerSecond(shell.run(app, BydWheelSpeed.speedCommand(app))) ?: return
         val sample = VehicleSpeedSample((before + SystemClock.elapsedRealtime()) / 2, speed)
         synchronized(this) {
             if (samples.size == MAX_SAMPLES) samples.removeAt(0)

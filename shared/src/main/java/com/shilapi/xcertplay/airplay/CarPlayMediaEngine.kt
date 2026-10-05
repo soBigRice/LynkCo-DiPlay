@@ -250,7 +250,9 @@ class CarPlayMediaEngine(
      */
     private fun videoDataStream(session: AirPlaySession, uuid: String, stream: Map<String, Any?>): Map<String, Any?>? {
         if (uuid in VideoInCar.REMOTE_CONTROL_UUIDS && (stream["controlType"] as? Number)?.toInt() == 1) {
-            return linkedMapOf("type" to STREAM_TYPE_DATA, "streamID" to nextRemoteControlStreamId++)
+            val streamId = nextRemoteControlStreamId++
+            session.logTrace("video remote-control stream accepted uuid=$uuid streamID=$streamId")
+            return linkedMapOf("type" to STREAM_TYPE_DATA, "streamID" to streamId)
         }
         if (uuid != VideoInCar.SETTINGS_CHANNEL_UUID) return null
         val shared = session.sharedSecret ?: return null
@@ -261,6 +263,7 @@ class CarPlayMediaEngine(
         val channel = VideoSettingsChannel(key(DATASTREAM_OUTPUT_KEY), key(DATASTREAM_INPUT_KEY)) { session.logDebug(it) }
         val port = channel.listen(session.localAddress ?: InetAddress.getByName("::"))
         videoSettingsChannels.put(session, channel)?.close()
+        session.logTrace("video settings stream listening port=$port")
         return linkedMapOf<String, Any?>("type" to STREAM_TYPE_DATA, "streamID" to VIDEO_SETTINGS_STREAM_ID, "dataPort" to port)
             .apply {
                 stream["streamConnectionID"]?.let { connectionId ->

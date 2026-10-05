@@ -28,8 +28,11 @@ interface CarPlayVideoListener {
 internal class VideoInCarGate(
     private val readParked: () -> Boolean?,
     private val onChanged: (Boolean) -> Unit,
+    private val onObserved: (Boolean?) -> Unit = {},
 ) : Closeable {
     @Volatile private var closed = false
+    private var observed = false
+    private var lastParked: Boolean? = null
 
     fun start() {
         Thread({
@@ -45,6 +48,11 @@ internal class VideoInCarGate(
     }
 
     internal fun update(parked: Boolean?) {
+        if (!observed || parked != lastParked) {
+            observed = true
+            lastParked = parked
+            onObserved(parked)
+        }
         val allowed = parked == true
         if (allowed == VideoInCar.allowed || closed) return
         VideoInCar.allowed = allowed

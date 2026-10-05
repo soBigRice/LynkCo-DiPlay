@@ -40,6 +40,7 @@ class MapEmbedSurfaceControlHostShadow {
 class MapEmbedServiceTest {
     @Test fun disablingSharingReleasesAlreadyAttachedMaps() {
         MapEmbedSurfaceControlHostShadow.releases = 0
+        MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
         val controller = Robolectric.buildService(MapEmbedService::class.java).create()
         val service = controller.get()
         try {
@@ -64,6 +65,13 @@ class MapEmbedServiceTest {
             val video = root.getChildAt(0) as android.view.TextureView
             video.surfaceTextureListener!!.onSurfaceTextureAvailable(android.graphics.SurfaceTexture(0), 1200, 450)
             assertTrue(MapMirrors.launcherShowsMap)
+            video.layout(0, 0, 1200, 450)
+            MapMirrors.streamAspect = MapMirrors.VIRTUAL_STREAM_ASPECT
+            shadowOf(Looper.getMainLooper()).idle()
+            val matrix = FloatArray(9)
+            video.getTransform(android.graphics.Matrix()).getValues(matrix)
+            assertEquals("An existing launcher surface must follow negotiated geometry", 1.5f,
+                matrix[android.graphics.Matrix.MSCALE_Y], 0.001f)
             AirPlayPersistence.saveLauncherMapSharing(service, false)
             shadowOf(Looper.getMainLooper()).idle()
             assertTrue("Turning sharing off must release existing launcher maps", embeds.isEmpty())
@@ -85,6 +93,7 @@ class MapEmbedServiceTest {
             assertTrue(embeds.isEmpty())
         } finally {
             controller.destroy()
+            MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
         }
     }
 }

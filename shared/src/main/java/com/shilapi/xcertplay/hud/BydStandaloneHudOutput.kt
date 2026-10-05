@@ -34,6 +34,7 @@ internal class BydStandaloneHudOutput private constructor(context: Context) {
 
     fun update(icon: Int, exit: Int, distanceMeters: Int, road: String) =
         session.update(icon, exit, distanceMeters, road)
+    fun showText(text: String) = session.showText(text)
     fun clear() = session.clear()
 
     companion object {
@@ -43,6 +44,21 @@ internal class BydStandaloneHudOutput private constructor(context: Context) {
 
         fun create(context: Context): BydStandaloneHudOutput? =
             if (available(context)) BydStandaloneHudOutput(context) else null
+
+        fun diagnostics(context: Context): String = buildString {
+            appendLine("standaloneHudAvailable=${available(context)} sdk=${Build.VERSION.SDK_INT}")
+            appendLine("firmware=${Build.FINGERPRINT}")
+            runCatching {
+                val info = context.packageManager.getPackageInfo(TARGET.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                val receiver = context.packageManager.getReceiverInfo(TARGET, 0)
+                appendLine("receiver=${TARGET.flattenToString()} version=${info.longVersionCode} system=${(info.applicationInfo?.flags?.and(ApplicationInfo.FLAG_SYSTEM) ?: 0) != 0}")
+                appendLine("receiverEnabled=${receiver.enabled} exported=${receiver.exported} permission=${receiver.permission}")
+                info.signingInfo?.apkContentsSigners?.forEach { signer ->
+                    appendLine("signerSha256=" + MessageDigest.getInstance("SHA-256").digest(signer.toByteArray())
+                        .joinToString("") { "%02x".format(it.toInt() and 255) })
+                }
+            }.onFailure { appendLine("receiverMetadataUnavailable=${it.javaClass.simpleName}") }
+        }
 
         /** Enable production and diagnostic packages only on the physically tested firmware. */
         fun available(context: Context): Boolean {

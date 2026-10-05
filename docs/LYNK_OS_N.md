@@ -944,3 +944,42 @@ v2 签名验证通过，签名与 test12 相同，认证素材及 13 个 native 
 `dist/DiPlay-Lynk-OSN2-test13a.apk`，versionCode31；同签名可覆盖安装。
 SHA-256：`ff472fdf7e9c2124b8c7170b2b34eecbc8ad4e99a4808f12122e5777ac66e510`。
 认证素材/native 库与 test13 逐文件相同。构建进程已退出，本轮缓存和远端 XML 已清理。
+
+
+## test14：整合上游 0.2.12 并同步 fork/main（2026-10-05）
+
+用户明确选择整合 0.2.12 后更新 `soBigRice/LynkCo-DiPlay` 的 `main`。以 `6d8486a`
+保存此前 test13a 全部适配，合入上游 `2fc876e578eba3905a5b873e3c2dbd74f498433a`，
+保留双方历史。测试版本为 `0.2.12-lynk-osn2-test14` / versionCode32。
+
+- 音频采用上游 API28 属性 fallback 与 `MediaCodecStartup` 释放逻辑；保留 USB 活动配置核验、
+  EBUSY 限定恢复和 Opus 启动失败释放。VPN 同时限制本应用 UID、保持 `fe80::/64` 与 IPv4 放行。
+- 无线保留本地完整握手预算和真实关闭屏障，整合上游首次 TCP watchdog、分代监听、稳定热点采样
+  与 Existing Wi-Fi 双栈。异步交接、热点停止和旧网络回调必须在最终动作的锁内核验 generation，
+  不能先检查再无条件清理当前栈。手动热点继续排除上联网卡、STA 别名和 P2P，并拒绝多个 AP。
+- 上游 `runStack` 的手机 `syslog_relay` 采集和 256 字节 TLS 实验在领克资源中明确关闭
+  (`config_wired_lab_diagnostics=false`)，维持此前有线发送契约和脱敏 IO 统计。
+  普通上游 target 保留上游行为；不以整合上游为由宣称实车更稳定。
+- 领克面板、可拖动设置入口、只读环境检测和「基于 DiPlay 修改」署名保留。
+  日志统一使用 `ConnectionDiagnosticReport`，包含两种连接历史、环境检测、崩溃、进程退出和
+  上游显示诊断；BYD 专属诊断仅在资源允许时采集。
+- 导出使用上游 API28 私有文件回退与只读 Provider，每次生成独立 URI、只保留最近八份，
+  无需系统文件选择器；优先路径为应用专属 `files/diagnostic-reports`，失败回退内部存储。
+  所有认证素材、APK、实车日志、模拟器截图和构建缓存均不进入公共 Git。
+
+经验：本机双栈回放的默认 `Socket` 被电脑代理转走 IPv6 loopback；以同端口/双顺序对照确认
+`Proxy.NO_PROXY` 可到正确监听器。仅让本地测试直连，保留车机双栈，不通过加超时掩盖问题。
+本地回归的 Android9 VPN shadow 同时覆盖 InetAddress builder overload 与新 UID scope。
+
+验证：shared 753 项（1 项既有跳过）、common 580 项、领克 23 项、home 4 项，合计 1359 通过、1 跳过。
+mobile 原版/领克、home、maphost 均构建通过；lint 均 0 errors（warnings 分别 19/9/5/2）。
+领克最终入口微调后复跑其 23 项测试和 lint 通过；CI 同步加入领克变体的源码测试/构建。
+API28 模拟器覆盖安装 test14，核对首页、设置、环境检测、关于署名；实际导出文件同时含
+有线/无线历史、环境检测及结束标记。最后隔离比亚迪专属手势提示，重新构建并在 API28 设置页面核验。
+未执行实车或 iPhone 连接，仍不能确认无线、音乐暂停与网速问题已解决。
+
+本地包 `dist/DiPlay-Lynk-OSN2-test14.apk`：48,732,152 bytes，
+SHA-256 `c787a899e716cb3eb96d77e97a95451b0becdde997750f02ee6bd154b07be079`。
+v2 签名与 test13a 相同，本地认证输入逐文件一致；公共 Git 不含这些素材。
+旧 test13a 包保留；证据位于忽略目录 `.private/verification/fork-sync/`。
+推送目标为 `fork/main`；`origin` 保留原 DiPlay 项目，便于后续比较上游。

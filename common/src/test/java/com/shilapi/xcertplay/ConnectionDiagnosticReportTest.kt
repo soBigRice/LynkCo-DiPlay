@@ -94,18 +94,18 @@ class ConnectionDiagnosticReportTest {
     }
 
     @Test fun android9CreatesReadableShareableFileWithoutDocumentsUiOrStoragePermission() {
-        val saved = DiagnosticExportStore.saveLocally(context, "DiPlay-test3.txt", "USB + 无线\n")
-        assertTrue(saved.file.isFile)
+        val saved = DiagnosticExportStore.saveWithoutPicker(context, "DiPlay-test3.txt", "USB + 无线\n")
+        assertTrue(File(requireNotNull(saved.savedPath)).isFile)
         assertEquals("content", saved.uri.scheme)
-        assertEquals("${context.packageName}.reports", saved.uri.authority)
+        assertEquals("${context.packageName}.diagnostic-reports", saved.uri.authority)
         context.contentResolver.openInputStream(saved.uri)!!.bufferedReader().use {
             assertEquals("USB + 无线\n", it.readText())
         }
         assertThrows(IllegalArgumentException::class.java) {
-            FileProvider.getUriForFile(context, "${context.packageName}.reports", File(context.filesDir, "offline-mfi/identity.pk8"))
+            FileProvider.getUriForFile(context, "${context.packageName}.diagnostic-reports", File(context.filesDir, "offline-mfi/identity.pk8"))
         }
         assertThrows(IllegalArgumentException::class.java) {
-            DiagnosticExportStore.saveLocally(context, "../secret.txt", "test")
+            DiagnosticExportStore.saveWithoutPicker(context, "../secret.txt", "test")
         }
     }
 }

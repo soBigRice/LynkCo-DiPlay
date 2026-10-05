@@ -13,7 +13,9 @@ internal object BydParkedState {
     private val shell = BydAdbShell("DiPlay-BYD-Parked")
 
     /** Null when the gear cannot be read (no ADB over network, or another car). Blocking. */
-    fun parked(context: Context): Boolean? = parked(shell.run(context, GEAR))
+    fun parked(context: Context): Boolean? {
+        return parked(shell.run(context, BydWheelSpeed.gearCommand(context)))
+    }
 
-    fun parked(output: String?): Boolean? = BydParcel.value(output)?.takeIf { it in 1..4 }?.let { it == PARK }
+    fun parked(output: String?): Boolean? = BydParcel.value(output)?.takeIf { it in 1..6 }?.let { it == PARK }
 }

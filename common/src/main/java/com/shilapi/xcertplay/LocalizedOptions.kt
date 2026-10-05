@@ -44,3 +44,9 @@ internal fun ManualHotspotValidation.Error.messageResource(): Int = when (this) 
     ManualHotspotValidation.Error.INVALID_CHARACTER -> R.string.hotspot_error_invalid_character
     ManualHotspotValidation.Error.PASSWORD_LENGTH -> R.string.hotspot_error_password_length
 }
+
+internal fun com.shilapi.xcertplay.hud.BydOemClusterHold.localizedLabel(context: Context): String = context.getString(when (this) {
+    com.shilapi.xcertplay.hud.BydOemClusterHold.OFF -> R.string.oem_cluster_hold_off
+    com.shilapi.xcertplay.hud.BydOemClusterHold.COMPONENT -> R.string.oem_cluster_hold_component
+    com.shilapi.xcertplay.hud.BydOemClusterHold.PACKAGE -> R.string.oem_cluster_hold_package
+})

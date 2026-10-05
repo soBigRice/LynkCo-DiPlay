@@ -1,4 +1,5 @@
 <resources>
+    <bool name="config_wired_lab_diagnostics">false</bool>
     <bool name="config_lynk_local_hotspot">true</bool>
     <bool name="config_byd_integration">false</bool>
     <bool name="config_manual_hotspot_strict_interface">true</bool>

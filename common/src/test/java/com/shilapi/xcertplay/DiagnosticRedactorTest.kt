@@ -5,6 +5,33 @@ import org.junit.Test
 import java.nio.file.Files
 
 class DiagnosticRedactorTest {
+    @Test fun additionalTroubleshootingMetadataSurvivesSavedReportWithoutPayloads() {
+        val lines = listOf(
+            "wireless startup elapsedMs=10000 authenticated=true wifiConfigs=2 startRequests=1 tcpAccepted=0 sessionActive=false waitingFor=WiFi_discovery_or_AirPlay_TCP startRequestAgeMs=9000 firstTcpAfterStartMs=none",
+            "receiveCounters windowMs=10000 udpScope=device ifaceRx=sampled ifaceRxPacketsDelta=400 ifaceRxBytesDelta=8000 ifaceRxDroppedDelta=2 ifaceRxErrorsDelta=0 ifaceRxMissedErrorsDelta=1 udp4=sampled udp4InDatagramsDelta=390 udp4InErrorsDelta=2 udp4RcvbufErrorsDelta=1 udp4InCsumErrorsDelta=1 udp6=unavailable failureClass=FileNotFoundException",
+            "Audio: renderer failed api=30 audioType=default codec=OPUS stage=decoder-configure error=IllegalArgumentException causes=IllegalArgumentException at=android.media.MediaCodec.configure:100",
+            "Audio: decoder stats audioType=default codec=OPUS inputQueuedTotal=20 inputDroppedTotal=0 shortOpusPacketsTotal=2 decoderUnavailablePacketsTotal=0 outputBuffersTotal=19 ended=true",
+            "THEME_DIAGNOSTIC sample source=poll uiMode=0x13 nightMask=0x10 reported=light applied=light sessionActive=true pollsSinceSample=30 callbacksSinceSample=0",
+            "Process exit index=0 ageMs=5000 reason=native_crash reasonCode=5 status=11 importance=100 pssKiB=2048 rssKiB=4096",
+        )
+        val folder = Files.createTempDirectory("diplay-troubleshooting-report").toFile()
+        try {
+            val file = folder.resolve("diplay.log")
+            SessionLogFile(file).use { log ->
+                log.reset("started")
+                for (line in lines) {
+                    assertTrue("New fields must fit the export cap", line.length < 700)
+                    assertEquals(line, DiagnosticRedactor.redact(line))
+                    log.append(line)
+                }
+                log.append("Audio: payload=private-recording")
+            }
+            val report = file.readText()
+            lines.forEach { assertTrue(report.contains(it)) }
+            assertFalse(report.contains("private-recording"))
+        } finally { folder.deleteRecursively() }
+    }
+
     @Test fun boundedMicrophoneStartFailureAndCaptureCountersSurviveRedaction() {
         val lines = listOf(
             "Microphone: start type=telephony source=VOICE_COMMUNICATION codec=OPUS rate=48000 channels=1 frameMs=20 routedDeviceType=15",
@@ -96,5 +123,21 @@ class DiagnosticRedactorTest {
         )
         for (line in lines) assertNotNull(line, DiagnosticRedactor.redact(line))
         assertFalse(DiagnosticRedactor.redact(lines.last())!!.contains("192.168.49.1"))
+    }
+
+    @Test fun startupAndAirPlayMilestonesSurviveExportWithoutWeakeningPayloadFilters() {
+        val lines = listOf(
+            "wireless startup elapsedMs=10000 authenticated=true wifiConfigs=2 startRequests=1 tcpAccepted=0 sessionActive=false waitingFor=WiFi_discovery_or_AirPlay_TCP",
+            "interfaceState=up multicast=true ipv4Usable=1 ipv6LinkLocal=1 ipv6Scoped=1",
+            "p2pGroup=present owner=true sameGroup=true reportedP2pClients=0 association=unknown legacyClients=not_exposed",
+            "bonjourAdded=0 bonjourResolved=0 bonjourAddressMismatch=0 connectProbes=0 connectProbe2xx=0 lastProbe=not_started",
+            "control probe stage=REQUEST_SENT attempt=1 family=IPv6",
+            "airplay TCP accepted family=IPv6",
+            "airplay control request method=POST route=pair-verify contentBytes=128",
+            "airplay control response status=200 contentBytes=32",
+            "iap2 availability wired=unknown wireless=true themeAssets=unknown",
+        )
+        for (line in lines) assertEquals(line, line, DiagnosticRedactor.redact(line))
+        assertNull(DiagnosticRedactor.redact("airplay rx POST /pair-verify body=secret"))
     }
 }

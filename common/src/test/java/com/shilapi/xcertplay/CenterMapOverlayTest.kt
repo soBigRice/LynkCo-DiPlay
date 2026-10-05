@@ -180,6 +180,31 @@ class CenterMapOverlayTest {
         assertEquals(0, taps)
     }
 
+    @Test fun showWith16By9AspectProportionsHeightProperly() {
+        CenterMapOverlay.hide()
+        context.getSharedPreferences("diplay_center_map", Context.MODE_PRIVATE).edit()
+            .clear().putInt("width", 720).commit()
+        assertTrue(CenterMapOverlay.show(context, 16.0 / 9.0, {}, {}))
+        card = CenterMapOverlay.javaClass.getDeclaredField("root").apply { isAccessible = true }
+            .get(CenterMapOverlay) as View
+        assertEquals(720, params.width)
+        assertEquals(405, params.height)
+    }
+
+    @Test fun changedAspectPersistsAdaptedWidthAcrossSubsequentShows() {
+        CenterMapOverlay.hide()
+        val prefs = context.getSharedPreferences("diplay_center_map", Context.MODE_PRIVATE)
+        prefs.edit().putInt("width", 1000)
+            .putLong("aspect", java.lang.Double.doubleToRawLongBits(8.0 / 3)).commit()
+        assertTrue(CenterMapOverlay.show(context, 16.0 / 9, {}, {}))
+        val width = prefs.getInt("width", 0)
+        assertTrue(width != 1000)
+        CenterMapOverlay.hide()
+        assertTrue(CenterMapOverlay.show(context, 16.0 / 9, {}, {}))
+        card = CenterMapOverlay.javaClass.getDeclaredField("root").apply { isAccessible = true }.get(CenterMapOverlay) as View
+        assertEquals(width, params.width)
+    }
+
     private fun touch(action: Int, vararg pointers: Pair<Int, Float>) {
         time += 16
         val properties = pointers.map { (id, _) -> MotionEvent.PointerProperties().apply {
