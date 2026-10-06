@@ -2,9 +2,13 @@
 
 An independent Lynk OS N 2.0 / Android 9 adaptation of [shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay), integrated with upstream **0.2.12**. Original author and contributor credits are retained. Lynk package: `com.shihab.diplay.lynk`.
 
-The adaptation adds a Lynk interface, a read-only environment check, combined USB/wireless diagnostic export, Android 9 USB recovery, and temporary hotspot/Bluetooth lifecycle handling. Wired connection was reported working on an earlier test build; music pauses, slow loading and wireless operation still require vehicle validation. This is not an official Lynk, upstream DiPlay or Apple-certified product.
+The adaptation adds a Lynk interface, a read-only environment check, combined USB/wireless diagnostic export, Android 9 USB recovery, and temporary hotspot/Bluetooth lifecycle handling. The user confirmed working wired connectivity and acceptable smoothness with test17; wireless still needs vehicle validation. This is not an official Lynk, upstream DiPlay or Apple-certified product.
 
 This public repository contains source only: no authentication private keys, certificates or ready-to-connect APK. See the [Chinese fork guide](README.zh-CN.md), [build and validation notes](docs/LYNK_OS_N.md), and [code map](PROJECT_MAP.md).
+
+[Project website](https://soBigRice.github.io/LynkCo-DiPlay/) · [Download source](https://github.com/soBigRice/LynkCo-DiPlay/archive/refs/heads/main.zip) · [Lynk releases](https://github.com/soBigRice/LynkCo-DiPlay/releases) · [Website and app update behavior](docs/UPDATES.md)
+
+The website and source are public; a complete APK is not published yet. The Lynk app includes automatic and manual version checks under Settings → Support → App updates.
 
 The upstream 0.2.12 documentation follows. Its BYD test results do not establish Lynk compatibility.
 

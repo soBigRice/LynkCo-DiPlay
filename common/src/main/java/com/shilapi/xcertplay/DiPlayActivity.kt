@@ -92,6 +92,16 @@ class DiPlayActivity : ComponentActivity() {
     private var initialLaunch = true
     private var notificationTransport = true
     private var exportInProgress = false
+    private val lynkUpdatesEnabled get() = packageName == LynkAppUpdates.PACKAGE
+    private val updatePreferences by lazy { LynkUpdatePreferences(applicationContext) }
+    private var updateResult: LynkAppUpdates.Result? = null
+    private var updateRequest: LynkUpdateRequest? = null
+    private var updateThread: Thread? = null
+    private var updateStatus: TextView? = null
+    private var updateCheckButton: Button? = null
+    private var updateDownloadButton: Button? = null
+    private var updateNotesButton: Button? = null
+    private var updateNotice: TextView? = null
     private var environmentReport: EnvironmentReport? = null
     private var environmentRunning = false
     private var environmentFailed = false
@@ -208,6 +218,9 @@ class DiPlayActivity : ComponentActivity() {
         settingsGroup = savedInstanceState?.getString("lynk_settings_group")?.let { name ->
             LynkSettingsGroup.entries.find { it.name == name }
         } ?: LynkSettingsGroup.GENERAL
+        if (lynkUpdatesEnabled) updateResult = updatePreferences.cached()?.let {
+            runCatching { parseUpdateManifest(it) }.getOrNull()
+        }
         render()
         if (page == "environment") checkEnvironment()
         scheduleAutomaticVehicleValidation()
@@ -262,9 +275,14 @@ class DiPlayActivity : ComponentActivity() {
                 addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
             }, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         CenterMapOverlay.onDiPlayScreenShown()
+        // Check only on the idle launcher, never during the connection/CarPlay handoff.
+        if (lynkUpdatesEnabled && page == "home" && !CarPlayBackgroundSession.hasSession() &&
+            !pendingWireless && !DiPlayPreferences.autoConnect(this) &&
+            updatePreferences.due(System.currentTimeMillis())) checkAppUpdates()
     }
 
     override fun onStop() {
+        cancelAppUpdateCheck()
         if (simpleConnectionFlow) unregisterReceiver(wirelessPreparationReceiver)
         clusterSafeAreaDialog?.dismiss()
         startupHotspotCancelled = true
@@ -304,6 +322,7 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        cancelAppUpdateCheck()
         WheelKeyService.cancelLearning()
         handler.removeCallbacks(automaticVehicleValidation)
         adbCheckGeneration++
@@ -511,6 +530,11 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun renderLynkPanel() {
+        updateStatus = null
+        updateCheckButton = null
+        updateDownloadButton = null
+        updateNotesButton = null
+        updateNotice = null
         val shell = column().apply { setBackgroundColor(BG) }
         val body = column().apply { setPadding(dp(28), dp(16), dp(28), dp(12)) }
         val header = row().apply { gravity = Gravity.CENTER_VERTICAL }
@@ -553,6 +577,15 @@ class DiPlayActivity : ComponentActivity() {
             "settings" -> settings(content)
             "about" -> about(content)
             else -> connectionHome(content)
+        }
+        if (page == "home" && lynkUpdatesEnabled) {
+            updateNotice = label("", 15, ACCENT).apply {
+                minHeight = dp(48)
+                isFocusable = true
+                setOnClickListener { page = "settings"; settingsGroup = LynkSettingsGroup.SUPPORT; render() }
+            }
+            content.addView(updateNotice)
+            refreshAppUpdateViews()
         }
         shell.addView(body, LinearLayout.LayoutParams(-1, -1))
         setContentView(shell)
@@ -1092,12 +1125,14 @@ class DiPlayActivity : ComponentActivity() {
         section(content, getString(R.string.about), R.drawable.ic_dp_about, LynkSettingsGroup.SUPPORT) { card ->
             card.addView(button(getString(R.string.about_diplay), false) { page = "about"; render() }, matchButton(0, 60))
         }
+        if (lynkUpdatesEnabled) appUpdateSection(content)
         languageSettings(content)
     }
 
     private fun about(content: LinearLayout) {
         content.addView(label(getString(R.string.diplay), 40, TEXT, true))
         content.addView(label(getString(R.string.carplay_at_home_in_your_car), 20, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
+        if (lynkUpdatesEnabled) appUpdateSection(content)
         if (simpleConnectionFlow) section(content, getString(R.string.lynk_upstream_credit)) { card ->
             card.addView(label(getString(R.string.lynk_upstream_description), 16, MUTED))
             card.addView(button(getString(R.string.lynk_upstream_project), false) {
@@ -1118,6 +1153,96 @@ class DiPlayActivity : ComponentActivity() {
     private fun openProjectPage(url: String) {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             .onFailure { toast(getString(R.string.lynk_upstream_no_browser, url)) }
+    }
+
+    private fun appUpdateSection(content: LinearLayout) {
+        section(content, getString(R.string.lynk_update_title), group = LynkSettingsGroup.SUPPORT) { card ->
+            card.addView(label(getString(R.string.lynk_update_installed, version()), 16, MUTED))
+            updateStatus = label("", 16, TEXT).apply { setPadding(0, dp(12), 0, 0); accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+            card.addView(updateStatus)
+            updateCheckButton = button(getString(R.string.lynk_update_check), false) { checkAppUpdates() }
+            card.addView(updateCheckButton, matchButton(16, 56))
+            updateDownloadButton = button(getString(R.string.lynk_update_download), true) {
+                (updateResult as? LynkAppUpdates.Result.Available)?.let { openProjectPage(it.release.downloadUrl) }
+            }
+            card.addView(updateDownloadButton, matchButton(10, 56))
+            updateNotesButton = button(getString(R.string.lynk_update_notes), false) {
+                val release = when (val result = updateResult) {
+                    is LynkAppUpdates.Result.Available -> result.release
+                    is LynkAppUpdates.Result.Incompatible -> result.release
+                    else -> null
+                }
+                release?.let { openProjectPage(it.releaseUrl) }
+            }
+            card.addView(updateNotesButton, matchButton(10, 56))
+            toggle(card, getString(R.string.lynk_update_auto), getString(R.string.lynk_update_auto_hint), updatePreferences.automatic) {
+                updatePreferences.automatic = it
+                if (!it) cancelAppUpdateCheck()
+            }
+            card.addView(button(getString(R.string.lynk_update_website), false) { openProjectPage(LynkAppUpdates.WEBSITE) }, matchButton(10, 56))
+            card.addView(button(getString(R.string.lynk_update_source), false) { openProjectPage(LynkAppUpdates.REPOSITORY) }, matchButton(10, 56))
+            refreshAppUpdateViews()
+        }
+    }
+
+    private fun parseUpdateManifest(json: String): LynkAppUpdates.Result = LynkAppUpdates.parse(
+        json, packageName, packageManager.getPackageInfo(packageName, 0).longVersionCode, Build.VERSION.SDK_INT,
+    )
+
+    private fun checkAppUpdates() {
+        if (!lynkUpdatesEnabled || updateRequest != null) return
+        val request = LynkUpdateRequest()
+        updateRequest = request
+        updatePreferences.attempted(System.currentTimeMillis())
+        refreshAppUpdateViews()
+        updateThread = Thread({
+            var manifest: String? = null
+            val result = try {
+                manifest = request.fetch()
+                parseUpdateManifest(manifest)
+            } catch (_: java.util.concurrent.CancellationException) {
+                return@Thread
+            } catch (_: Exception) {
+                LynkAppUpdates.Result.Failed
+            }
+            handler.post {
+                if (isDestroyed || isFinishing || updateRequest !== request) return@post
+                updateRequest = null
+                updateThread = null
+                updateResult = result
+                if (result != LynkAppUpdates.Result.Failed) manifest?.let { updatePreferences.save(it) }
+                refreshAppUpdateViews()
+            }
+        }, "LynkUpdateCheck").apply { start() }
+    }
+
+    private fun cancelAppUpdateCheck() {
+        updateRequest?.close()
+        updateRequest = null
+        updateThread?.interrupt()
+        updateThread = null
+        refreshAppUpdateViews()
+    }
+
+    private fun refreshAppUpdateViews() {
+        val checking = updateRequest != null
+        val result = updateResult
+        updateCheckButton?.isEnabled = !checking
+        updateCheckButton?.text = getString(if (checking) R.string.lynk_update_checking else R.string.lynk_update_check)
+        updateStatus?.text = when (result) {
+            null -> getString(R.string.lynk_update_idle)
+            LynkAppUpdates.Result.NoRelease -> getString(R.string.lynk_update_unpublished)
+            LynkAppUpdates.Result.Current -> getString(R.string.lynk_update_current)
+            LynkAppUpdates.Result.Failed -> getString(R.string.lynk_update_failed)
+            is LynkAppUpdates.Result.Incompatible -> getString(R.string.lynk_update_incompatible, result.release.versionName, result.release.minSdk)
+            is LynkAppUpdates.Result.Available -> getString(R.string.lynk_update_available, result.release.versionName, result.release.notes)
+        }
+        updateDownloadButton?.visibility = if (result is LynkAppUpdates.Result.Available) View.VISIBLE else View.GONE
+        updateNotesButton?.visibility = if (result is LynkAppUpdates.Result.Available || result is LynkAppUpdates.Result.Incompatible) View.VISIBLE else View.GONE
+        updateNotice?.apply {
+            visibility = if (result is LynkAppUpdates.Result.Available) View.VISIBLE else View.GONE
+            if (result is LynkAppUpdates.Result.Available) text = getString(R.string.lynk_update_notice, result.release.versionName)
+        }
     }
 
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.

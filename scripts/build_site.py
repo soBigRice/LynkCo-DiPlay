@@ -1,38 +1,83 @@
 #!/usr/bin/env python3
-"""Generate the static GitHub Pages editions, one per language in content.json; no runtime dependencies."""
-from pathlib import Path
-import json
+"""Build the Lynk project's static Pages site and validate its shared update metadata."""
 from html import escape as e
+import json
+from pathlib import Path
+from urllib.parse import urlsplit
+
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / 'site'
-data = json.loads((SITE / 'content.json').read_text())
-BASE = 'https://shihabal3amri.github.io/DiPlay/'
-REPO = 'https://github.com/shihabal3amri/DiPlay'
-VERSION = '0.2.12'
-RELEASE = REPO + f'/releases/tag/v{VERSION}'
-DOWNLOAD = REPO + f'/releases/download/v{VERSION}/DiPlay-{VERSION}.apk'
-for lang, d in data.items():
-    folder = SITE if lang == 'en' else SITE / lang
-    folder.mkdir(exist_ok=True)
-    prefix = './' if lang == 'en' else '../'
-    url = BASE + ('' if lang == 'en' else lang + '/')
-    nav = ''.join(f'<a href="{prefix}{"" if code == "en" else code + "/"}" lang="{code}" hreflang="{code}" dir="auto"'+(' aria-current="page"' if code == lang else '')+f'>{e(v["name"])}</a>' for code,v in data.items())
-    alternates = ''.join(f'<link rel="alternate" hreflang="{code}" href="{BASE}{"" if code == "en" else code + "/"}">' for code in data)
-    pics = ''.join(f'<figure><a href="{prefix}assets/{pic}.png"><img src="{prefix}assets/{pic}.png" width="1920" height="1080" loading="lazy" alt="{e(cap)}"></a><figcaption>{e(cap)}</figcaption></figure>' for pic,cap in zip(['home','settings'],d['captions']))
-    (folder/'index.html').write_text(f'''<!doctype html>
-<html lang="{lang}" dir="{d['dir']}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DiPlay · {e(d['download'])}</title><meta name="description" content="{e(d['intro'])}"><meta name="theme-color" content="#0c121c">
-<link rel="icon" href="{prefix}assets/icon.png"><link rel="stylesheet" href="{prefix}assets/site.css"><link rel="canonical" href="{url}">{alternates}
-<meta property="og:title" content="DiPlay — CarPlay for compatible Android head units"><meta property="og:description" content="{e(d['promise'])}"><meta property="og:image" content="{BASE}assets/home.png"><meta property="og:url" content="{url}"><meta property="og:type" content="website">
+BASE = 'https://soBigRice.github.io/LynkCo-DiPlay/'
+REPO = 'https://github.com/soBigRice/LynkCo-DiPlay'
+PACKAGE = 'com.shihab.diplay.lynk'
+SOURCE = REPO + '/archive/refs/heads/main.zip'
+
+
+def validate_manifest(data):
+    if type(data.get('schemaVersion')) is not int or data.get('schemaVersion') != 1 or data.get('packageName') != PACKAGE or 'release' not in data:
+        raise ValueError('Invalid Lynk update manifest identity/schema')
+    release = data['release']
+    if release is None:
+        return None
+    for key, minimum in [('versionCode', 1), ('minSdk', 28)]:
+        if type(release.get(key)) is not int or release[key] < minimum:
+            raise ValueError('Invalid ' + key)
+    if not isinstance(release.get('versionName'), str) or not release['versionName'].strip() or len(release['versionName']) > 100:
+        raise ValueError('Invalid versionName')
+    if not isinstance(release.get('notes'), str) or len(release['notes']) > 8000:
+        raise ValueError('Invalid notes')
+    for key, prefix in [('downloadUrl', '/soBigRice/LynkCo-DiPlay/releases/download/'),
+                        ('releaseUrl', '/soBigRice/LynkCo-DiPlay/releases/tag/')]:
+        url = urlsplit(release[key])
+        if url.scheme != 'https' or url.netloc != 'github.com' or url.query or url.fragment or not url.path.startswith(prefix):
+            raise ValueError('Updates must use this repository on HTTPS GitHub')
+        if '%' in url.path or any(part in ('.', '..') for part in url.path.split('/')) or len(url.path) <= len(prefix):
+            raise ValueError('Invalid release path')
+    if not release['downloadUrl'].endswith('.apk'):
+        raise ValueError('Expected APK asset')
+    return release
+
+
+def build():
+    content = json.loads((SITE / 'content.json').read_text())
+    release = validate_manifest(json.loads((SITE / 'updates/latest.json').read_text()))
+    for lang, d in content.items():
+        folder = SITE if lang == 'zh-Hans' else SITE / 'en'
+        folder.mkdir(exist_ok=True)
+        prefix = './' if lang == 'zh-Hans' else '../'
+        url = BASE + ('' if lang == 'zh-Hans' else 'en/')
+        primary = release['downloadUrl'] if release else SOURCE
+        primary_text = d['download'] if release else d['sourceDownload']
+        release_text = release['versionName'] if release else d['unpublished']
+        notes = release['notes'] if release else d['releaseHint']
+        (folder / 'index.html').write_text(f'''<!doctype html>
+<html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LynkCo CarPlay · {e(d['tag'])}</title><meta name="description" content="{e(d['intro'])}"><meta name="theme-color" content="#121519">
+<link rel="icon" href="{prefix}assets/icon.png"><link rel="stylesheet" href="{prefix}assets/site.css"><link rel="canonical" href="{url}">
+<link rel="alternate" hreflang="zh-Hans" href="{BASE}"><link rel="alternate" hreflang="en" href="{BASE}en/">
+<meta property="og:title" content="LynkCo CarPlay"><meta property="og:description" content="{e(d['intro'])}"><meta property="og:image" content="{BASE}assets/home.png"><meta property="og:url" content="{url}"><meta property="og:type" content="website">
 </head><body><main>
-<header><a class="brand" href="{prefix}"><img src="{prefix}assets/icon.png" width="56" height="56" alt=""><span><strong>DiPlay</strong><small>{e(d['tag'])}</small></span></a><nav class="languages" aria-label="Language">{nav}</nav></header>
-<section class="hero"><span class="badge">{e(d['badge'])} · <bdi>{VERSION}</bdi></span><h1>{e(d['title']).replace(chr(10),'<br>')}</h1><p class="intro">{e(d['intro'])}</p><div class="actions"><a class="button" href="{DOWNLOAD}">{e(d['download'])} <span aria-hidden="true">↓</span></a><a class="button secondary" href="#install">{e(d['install'])}</a></div><p class="promise">{e(d['promise'])}</p><p class="note">{e(d['requires'])}</p><p class="note support-scope"><strong>{e(d['supportScope'])}</strong></p></section>
-<section class="gallery"><h2>{e(d['gallery'])}</h2><div class="screens">{pics}</div></section>
-<div class="grid"><section class="card" id="install"><span class="eyebrow">01</span><h2>{e(d['setup'])}</h2><ol>{''.join('<li>'+e(x)+'</li>' for x in d['steps'])}</ol><p class="note">{e(d['bssid'])}</p><a href="{REPO}/blob/main/docs/INSTALL.md">{e(d['adb'])} ↗</a></section>
-<section class="card"><span class="eyebrow">02</span><h2>{e(d['whats'])}</h2><ul>{''.join('<li>'+e(x)+'</li>' for x in d['features'])}</ul><a href="{RELEASE}">{e(d['notes'])} ↗</a><h3>{e(d['compat'])}</h3><p>{e(d['compatText'])}</p></section></div>
-<section class="card updates"><div><h2>{e(d['follow'])}</h2><p>{e(d['followText'])}</p></div><a class="button secondary" href="https://t.me/byd_localized">{e(d['telegram'])} ↗</a></section>
-<section class="signing"><h2>{e(d['update'])}</h2><p>{e(d['updateText'])}</p></section>
-<section class="card"><h2>{e(d['diagnosticsTitle'])}</h2><p>{e(d['diagnosticsText'])}</p><a href="{REPO}/issues">{e(d['feedback'])} ↗</a> · <a href="{REPO}/issues/new/choose">{e(d['newIssue'])} ↗</a></section>
-<footer><nav><a href="{REPO}/blob/main/docs/PRIVACY.md">{e(d["privacy"])}</a><a href="{REPO}">{e(d['source'])}</a><a href="{RELEASE}">{e(d['notes'])}</a><a href="{REPO}/issues">{e(d['feedback'])}</a></nav><p>{e(d['footer'])}</p></footer>
+<header><a class="brand" href="{prefix}"><strong>LynkCo <span>CarPlay</span></strong><small>{e(d['tag'])}</small></a>
+<nav aria-label="{e(d['navigation'])}"><a href="#download">{e(d['downloads'])}</a><a href="#install">{e(d['install'])}</a><a href="{REPO}">GitHub</a><a href="{prefix}{'en/' if lang == 'zh-Hans' else ''}" lang="{'en' if lang == 'zh-Hans' else 'zh-Hans'}">{'English' if lang == 'zh-Hans' else '中文'}</a></nav></header>
+<section class="hero"><h1>{e(d['title']).replace(chr(10), '<br>')}</h1><p class="intro">{e(d['intro'])}</p>
+<div class="actions"><a class="button" href="{primary}">{e(primary_text)} <span aria-hidden="true">↓</span></a><a class="button secondary" href="#install">{e(d['install'])}</a></div><p class="note">{e(d['scope'])}</p></section>
+<figure class="product"><a href="{prefix}assets/home.png"><img src="{prefix}assets/home.png" width="2560" height="1600" alt="{e(d['screenshotAlt'])}" fetchpriority="high"></a><figcaption>{e(d['caption'])}</figcaption></figure>
+<section class="download-section" id="download"><div><h2>{e(d['downloads'])}</h2><p class="version">{e(release_text)}</p><p>{e(notes).replace(chr(10), '<br>')}</p></div><div class="download-actions"><a class="button" href="{primary}">{e(primary_text)} <span aria-hidden="true">↓</span></a><a href="{REPO}/releases">{e(d['releasePage'])} ↗</a></div></section>
+<div class="grid"><section class="card" id="install"><h2>{e(d['setup'])}</h2><ol>{''.join('<li>' + e(step) + '</li>' for step in d['steps'])}</ol><p class="note">{e(d['updateHint'])}</p><a href="{REPO}/blob/main/docs/LYNK_OS_N.md">{e(d['guide'])} ↗</a></section>
+<section class="card"><h2>{e(d['featuresTitle'])}</h2><ul>{''.join('<li>' + e(item) + '</li>' for item in d['features'])}</ul><h3>{e(d['compatibility'])}</h3><p>{e(d['compatibilityText'])}</p></section></div>
+<section class="support"><div><h2>{e(d['feedbackTitle'])}</h2><p>{e(d['feedbackText'])}</p></div><a class="button secondary" href="{REPO}/issues/new/choose">{e(d['feedback'])} ↗</a></section>
+<section class="credits"><h2>{e(d['creditsTitle'])}</h2><p>{e(d['credits'])} <a href="https://github.com/shihabal3amri/DiPlay">DiPlay</a> · <a href="{REPO}/blob/main/docs/THIRD_PARTY_NOTICES.md">{e(d['notices'])}</a></p></section>
+<footer><nav><a href="{REPO}">{e(d['source'])}</a><a href="{REPO}/blob/main/LICENSE">AGPL-3.0</a><a href="{REPO}/blob/main/docs/PRIVACY.md">{e(d['privacy'])}</a><a href="{REPO}/releases">{e(d['releasePage'])}</a></nav><p>{e(d['footer'])}</p></footer>
 </main></body></html>''')
-print('Generated', len(data), 'language pages')
+    # Preserve old inbound language URLs without advertising upstream APKs as Lynk builds.
+    for lang in ['ar', 'es', 'ru', 'uk', 'zh-Hans']:
+        folder = SITE / lang
+        folder.mkdir(exist_ok=True)
+        destination = '../' if lang == 'zh-Hans' else '../en/'
+        (folder / 'index.html').write_text(f'<!doctype html><html lang="en"><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={destination}"><title>LynkCo CarPlay</title><a href="{destination}">LynkCo CarPlay</a></html>')
+    (SITE / '.nojekyll').touch()
+    print('Built Chinese and English Lynk pages; APK:', release['versionName'] if release else 'not published')
+
+
+if __name__ == '__main__':
+    build()

@@ -5,6 +5,7 @@
 
 - [领克适配、构建与实车验收](docs/LYNK_OS_N.md)：2023 款领克 03，用户提供的 OS N 2.0 / Android 9，iPhone 14 Pro / iOS 27。
 - 当前实现和边界见适配文档末尾「test17」：用户确认后已统一 runtime/stream 所有权、异步关闭屏障、失效音轨恢复、进程热点 pending 和系统 VPN 回调。用户已确认有线使用和流畅度；无线仍待验证，自动验证结果及验收范围以文末记录为准。
+- [官网与应用更新](docs/UPDATES.md)：Pages 静态站与共享公开元数据；`DiPlayActivity.checkAppUpdates` → `LynkUpdateRequest` → `LynkAppUpdates.parse`，仅领克包启用，当前完整 APK 暂不发布。
 - `mobile/build.gradle.kts`：普通 Android 车机 APK；`lynkDebug` 独立包名与资源覆盖。不使用面向 Android Automotive OS 的 `automotive` target。
 - `DiPlayActivity.connectionHome/about`：首页和关于页注明基于 DiPlay 修改，保留上游项目链接及许可证声明；后续视觉调整不得移除署名。
 - `common/.../DiPlayActivity.kt`：首页、热点配置、配对设备选择、可选车机蓝牙地址补充（留空恢复自动）、诊断导出；`CarPlayHostActivity.kt`：画面、Surface、状态订阅和用户命令；`CarPlaySessionPlan`：不可变连接输入；`CarPlayBackgroundSession`：会话、日志、重连、关闭及前台服务 epoch。

@@ -4,8 +4,12 @@
 
 - 领克风格首页与设置、只读环境检测、一份文件汇总有线/无线日志。
 - Android 9 USB 配置核验与恢复、实际关闭完成后重连、自动临时热点和蓝牙恢复。
-- 用户已确认早期测试包有线可以连接；音乐暂停、加载慢与无线连接仍需实车验证，环境检测通过不等于 CarPlay 认证成功。
+- 用户已确认 test17 有线可用、流畅度尚可；无线仍待实车验证，环境检测通过不等于 CarPlay 认证成功。
 - 公共仓库仅提供源码，**不包含认证私钥/证书或可直接连接的完整 APK**。构建、本地素材输入与验收边界见 [领克适配说明](docs/LYNK_OS_N.md)；代码导航见 [项目地图](PROJECT_MAP.md)。
+
+[项目官网](https://soBigRice.github.io/LynkCo-DiPlay/) · [下载源码](https://github.com/soBigRice/LynkCo-DiPlay/archive/refs/heads/main.zip) · [领克版本发布页](https://github.com/soBigRice/LynkCo-DiPlay/releases) · [官网与更新逻辑](docs/UPDATES.md)
+
+当前先公开官网和源码，完整 APK 暂不发布。领克 App 在“设置 → 支持 → 应用更新”提供自动/手动检查更新、官网与源码入口。
 
 以下保留上游 0.2.12 说明；其中比亚迪实车结果与功能范围不代表领克已验证。
 

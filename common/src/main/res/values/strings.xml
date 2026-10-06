@@ -636,4 +636,21 @@
     <string name="first_tcp_timeout">The iPhone did not connect to CarPlay in time</string>
     <string name="wireless_startup_retries_exhausted">Automatic retries stopped. Check the connection and retry manually.</string>
     <string name="retry_carplay_connection">Retry connection</string>
+    <string name="lynk_update_title">App updates</string>
+    <string name="lynk_update_installed">Installed version: %1$s</string>
+    <string name="lynk_update_check">Check for updates</string>
+    <string name="lynk_update_checking">Checking…</string>
+    <string name="lynk_update_download">Download update</string>
+    <string name="lynk_update_notes">Release notes</string>
+    <string name="lynk_update_auto">Check automatically</string>
+    <string name="lynk_update_auto_hint">Once a day on the idle home screen. Checks public version information only; never installs automatically.</string>
+    <string name="lynk_update_website">Project website</string>
+    <string name="lynk_update_source">Source code on GitHub</string>
+    <string name="lynk_update_idle">Check the Lynk edition for a newer version.</string>
+    <string name="lynk_update_unpublished">No public APK has been released yet. The website and source code are available.</string>
+    <string name="lynk_update_current">Your installed version is up to date.</string>
+    <string name="lynk_update_failed">Could not check for updates. Check your Internet connection and try again, or visit the website.</string>
+    <string name="lynk_update_incompatible">%1$s is available, but requires Android API %2$d. This head unit cannot install it.</string>
+    <string name="lynk_update_available">New version: %1$s\n%2$s</string>
+    <string name="lynk_update_notice">New version %1$s · Open updates</string>
 </resources>
