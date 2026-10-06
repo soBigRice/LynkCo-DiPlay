@@ -78,12 +78,18 @@ class AutomaticHotspotHandoffTest {
             while (release.count > 0) try { release.await() } catch (_: InterruptedException) { }
         }
         field(activity, "controller").set(activity, controller)
+        val runtimeType = Class.forName("com.shilapi.xcertplay.CarPlayBackgroundSession")
+        val runtime = runtimeType.getField("INSTANCE").get(null)
+        val displayType = Class.forName("com.shilapi.xcertplay.CarPlaySessionDisplay")
+        val display = displayType.declaredConstructors.single { it.parameterCount == 7 }.apply { isAccessible = true }
+            .newInstance(1280, 720, 0, true, true, 1280, 720)
+        runtimeType.declaredMethods.single { it.name == "store" }.invoke(runtime, controller,
+            com.shilapi.xcertplay.media.AndroidMediaSink(), 1280, 720, activity, display, null)
         try {
             assertTrue(entered.await(2, TimeUnit.SECONDS))
             val callback: () -> Unit = { completed.set(true) }
             activity.javaClass.declaredMethods.single { it.name == "shutdown" }.apply { isAccessible = true }
                 .invoke(activity, false, "test cancellation", callback)
-            (field(activity, "teardownExecutor").get(activity) as ExecutorService).submit {}.get(2, TimeUnit.SECONDS)
             shadowOf(Looper.getMainLooper()).idle()
             assertFalse(completed.get())
             release.countDown(); assertTrue(controller.awaitClosed(2000))

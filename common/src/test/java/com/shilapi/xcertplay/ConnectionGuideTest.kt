@@ -68,7 +68,7 @@ class ConnectionGuideTest {
 
     @Test fun wirelessHandshakeDoesNotAskForAUsbCable() {
         assertEquals(R.string.link_identifying_hint, ConnectionGuide.state(CarPlayStatus.RunningWireless, true).detail)
-        assertEquals(R.string.link_usb_hint, ConnectionGuide.state(CarPlayStatus.WaitingForIphone, false).detail)
+        assertEquals(R.string.lynk_usb_quick_hint, ConnectionGuide.state(CarPlayStatus.WaitingForIphone, false).detail)
         assertEquals(R.string.link_usb_hint, ConnectionGuide.state(CarPlayStatus.ControlEnded, false).detail)
         assertEquals(R.string.link_usb_hint, ConnectionGuide.state(CarPlayStatus.Failed("Transport interrupted"), false).detail)
     }

@@ -25,4 +25,19 @@
     <string name="lynk_phone_step">02 / IPHONE PAIRING</string>
     <string name="lynk_progress_label">CARPLAY CONNECTION</string>
     <string name="lynk_settings_copy">Choose a category. Your saved preferences stay with you.</string>
+    <string name="lynk_wireless_caption">Automatic hotspot · Pair once</string>
+    <string name="lynk_wired_caption">Connect your iPhone with a data cable</string>
+    <string name="lynk_pair_once">Set up your iPhone once</string>
+    <string name="lynk_enable_bluetooth_hint">Enable the car’s Bluetooth to continue. Your saved phone and pairing are kept.</string>
+    <string name="lynk_saved_phone_missing">Your saved phone is not in the car’s current paired-device list. Check Bluetooth settings, or select a phone that is already paired.</string>
+    <string name="lynk_first_pair_hint">1. On iPhone, turn on Bluetooth and Wi-Fi.\n2. Open the car’s Bluetooth settings and pair this iPhone once.\n3. Return here to continue automatically. When asked on iPhone, allow CarPlay.</string>
+    <string name="lynk_choose_paired">Already paired? Select iPhone</string>
+    <string name="lynk_continue">Continue</string>
+    <string name="lynk_wireless_next">Next, DiPlay creates a temporary hotspot and sends its details to iPhone. No hotspot name or password to enter.</string>
+    <string name="lynk_remembered_phone">Remembered: %1$s · Pairing will be reused</string>
+    <string name="lynk_phone_guide">iPhone instructions</string>
+    <string name="lynk_paired_guide">Keep iPhone Bluetooth and Wi-Fi on. DiPlay reuses the selected phone and pairing. Allow CarPlay if iPhone asks; an already authorized phone may not ask again.</string>
+    <string name="lynk_usb_quick_hint">Connect iPhone to the car’s USB data port and unlock it. Allow USB access on the car and Trust / CarPlay on iPhone if prompted. Saved trust is reused.</string>
+    <string name="lynk_manual_caption">Saved hotspot</string>
+    <string name="lynk_pick_once">Select your iPhone from the paired devices once. DiPlay remembers it for your next connection; no need to pair again.</string>
 </resources>

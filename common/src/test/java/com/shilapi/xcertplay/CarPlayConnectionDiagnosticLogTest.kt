@@ -22,6 +22,7 @@ class CarPlayConnectionDiagnosticLogTest {
     private val log get() = File(activity.filesDir, "logs/diplay.log").readText()
 
     @Before fun prepareOldControllerListener() {
+        CarPlayBackgroundSession.clear()
         activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         activity.javaClass.getDeclaredMethod("initializeSessionLog").apply { isAccessible = true }.invoke(activity)
         activity.javaClass.getDeclaredField("restartGeneration").apply { isAccessible = true }.set(activity, 2)
@@ -31,8 +32,7 @@ class CarPlayConnectionDiagnosticLogTest {
 
     @After fun cleanup() {
         assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
-        activity.javaClass.getDeclaredField("sessionLog").apply { isAccessible = true }
-            .get(activity).let { (it as Closeable).close() }
+        CarPlayBackgroundSession.clear()
         for (field in listOf("teardownExecutor", "airPlayCommandExecutor")) {
             (activity.javaClass.getDeclaredField(field).apply { isAccessible = true }
                 .get(activity) as ExecutorService).shutdownNow()
@@ -40,7 +40,10 @@ class CarPlayConnectionDiagnosticLogTest {
     }
 
     @Test fun oldTeardownEvidenceSurvivesWithoutAcceptingOtherOldControllerLogs() {
-        listener.onDebugLog("${CarPlayController.CONNECTION_DIAGNOSTIC_PREFIX} attempt=1 phase=CONTROL teardown end elapsedMs=117 executorTerminated=true")
+        val logs = CarPlayBackgroundSession.obtainLogs(activity.applicationContext)
+        logs.append("${CarPlayController.CONNECTION_DIAGNOSTIC_PREFIX} attempt=1 phase=CONTROL teardown end elapsedMs=117 executorTerminated=true")
+        CarPlayBackgroundSession.unbind(activity)
+        assertSame(logs, CarPlayBackgroundSession.obtainLogs(activity.applicationContext))
         listener.onDebugLog("old controller ordinary state")
         assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
         assertTrue(log.contains("teardown end elapsedMs=117"))
@@ -49,7 +52,8 @@ class CarPlayConnectionDiagnosticLogTest {
     }
 
     @Test fun theDiagnosticPrefixDoesNotBypassCredentialRedaction() {
-        listener.onDebugLog("${CarPlayController.CONNECTION_DIAGNOSTIC_PREFIX} attempt=1 token=private-token")
+        CarPlayBackgroundSession.obtainLogs(activity.applicationContext)
+            .append("${CarPlayController.CONNECTION_DIAGNOSTIC_PREFIX} attempt=1 token=private-token")
         assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
         assertFalse(log.contains("private-token"))
     }

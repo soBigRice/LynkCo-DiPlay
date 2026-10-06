@@ -51,6 +51,7 @@ internal object CarPlayMediaKeys {
     private var session: MediaSession? = null
     private var focusRequest: AudioFocusRequest? = null
     private var focusHeld = false
+    private var resumeFocus: (() -> Unit)? = null
     private var appContext: Context? = null
     private var mediaAudioActive = false
     private var nowPlaying = CarPlayNowPlaying()
@@ -60,13 +61,15 @@ internal object CarPlayMediaKeys {
     private var placeholder: Bitmap? = null
 
     @Synchronized
-    fun attach(context: Context, next: CarPlayController) {
+    fun attach(context: Context, next: CarPlayController, resumeFocus: (() -> Unit)? = null) {
         if (controller !== next) {
             releaseLocked()
             artworkOwner = artworkQueue.newSession()
         }
         appContext = context.applicationContext
+        this.resumeFocus = resumeFocus
         controller = next
+        next.recordAudioFocusDiagnostic("owner=${if (resumeFocus != null) "renderer" else "media-keys"}")
         next.playbackListener = { playing -> onIphonePlaying(next, playing) }
         next.nowPlayingListener = { update -> onNowPlayingChanged(next, update) }
         next.artworkListener = { id, bytes -> onArtworkChanged(next, id, bytes) }
@@ -144,11 +147,13 @@ internal object CarPlayMediaKeys {
     // keys. When CarPlay starts playing again it becomes the car's media source again, as any player
     // would; only the start counts, so a car source picked while the iPhone plays on is not undone.
     private fun regainFocusLocked() {
+        resumeFocus?.let { it(); return }
         val request = focusRequest ?: return
         if (focusHeld) return
         val audio = appContext?.getSystemService(AudioManager::class.java) ?: return
         focusHeld = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         Log.i(TAG, "audio focus regained=$focusHeld")
+        controller?.recordAudioFocusDiagnostic("media-keys regained=$focusHeld")
     }
 
     private fun updateLocked(active: Boolean) {
@@ -161,7 +166,7 @@ internal object CarPlayMediaKeys {
 
     private fun start(context: Context) {
         val audio = context.getSystemService(AudioManager::class.java)
-        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        val request = if (resumeFocus != null) null else AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -170,11 +175,12 @@ internal object CarPlayMediaKeys {
             )
             .setOnAudioFocusChangeListener({ change ->
                 Log.i(TAG, "audio focus change=$change")
+                controller?.recordAudioFocusDiagnostic("media-keys change=$change")
                 // Only a permanent loss moves the car's media keys elsewhere; transient losses come back.
                 if (change == AudioManager.AUDIOFOCUS_LOSS) synchronized(this) { focusHeld = false }
             }, mainHandler)
             .build()
-        val granted = audio?.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        val granted = request != null && audio?.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         focusRequest = request
         focusHeld = granted
         session = MediaSession(context, "DiPlay CarPlay").apply {
@@ -183,6 +189,7 @@ internal object CarPlayMediaKeys {
             isActive = true
         }
         Log.i(TAG, "media keys active focusGranted=$granted")
+        controller?.recordAudioFocusDiagnostic("media-session active independentRequest=${request != null} granted=$granted")
     }
 
     private fun releaseLocked() {
@@ -200,6 +207,7 @@ internal object CarPlayMediaKeys {
         focusRequest?.let { request -> appContext?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request) }
         focusRequest = null
         focusHeld = false
+        resumeFocus = null
     }
 
     private fun publishPlaybackStateLocked() {

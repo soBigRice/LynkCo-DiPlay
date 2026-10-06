@@ -1,20 +1,23 @@
 package com.shilapi.xcertplay.media
 
-/** Diagnostic link between the touch uplink and the next video frame, read by [VideoStats]. */
+import java.util.concurrent.atomic.AtomicLong
+
+/** A bounded next-frame proxy, not proof that the frame contains the touch response. */
 internal object TouchLatencyProbe {
-    @Volatile private var pendingTouchNs = 0L
+    private val pendingTouchNs = AtomicLong()
     @Volatile var maxSendNs = 0L
 
     fun onTouchSent(sentAtNs: Long, sendDurationNs: Long) {
-        if (pendingTouchNs == 0L) pendingTouchNs = sentAtNs
+        val previous = pendingTouchNs.get()
+        if (previous == 0L || sentAtNs - previous > MAX_SAMPLE_NS) pendingTouchNs.compareAndSet(previous, sentAtNs)
         if (sendDurationNs > maxSendNs) maxSendNs = sendDurationNs
     }
 
-    /** Returns touch-to-frame latency for the first frame after a touch, or -1. */
     fun onFrame(nowNs: Long): Long {
-        val touch = pendingTouchNs
-        if (touch == 0L) return -1
-        pendingTouchNs = 0L
-        return nowNs - touch
+        val touch = pendingTouchNs.getAndSet(0L)
+        val elapsed = nowNs - touch
+        return if (touch != 0L && elapsed in 0..MAX_SAMPLE_NS) elapsed else -1L
     }
+
+    private const val MAX_SAMPLE_NS = 2_000_000_000L
 }

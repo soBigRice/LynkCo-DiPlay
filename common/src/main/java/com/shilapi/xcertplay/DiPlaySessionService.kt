@@ -15,17 +15,21 @@ import com.shilapi.xcertplay.host.R
 
 /** Keeps an explicitly started connection alive when another car app is in the foreground. */
 class DiPlaySessionService : Service() {
+    private var runtimeEpoch = -1L
+    private var latestStartId = 0
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         if (intent?.action == ACTION_STOP) {
-            CarPlayBackgroundSession.stop()
-            stopSelf()
+            val epoch = intent.getLongExtra(EXTRA_RUNTIME_EPOCH, runtimeEpoch)
+            CarPlayBackgroundSession.stopServiceOwner(epoch) { if (CarPlayBackgroundSession.ownsService(epoch)) stopSelfResult(startId) }
             return START_NOT_STICKY
         }
+        runtimeEpoch = intent?.getLongExtra(EXTRA_RUNTIME_EPOCH, runtimeEpoch) ?: runtimeEpoch
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "CarPlay connection", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, CarPlayHostActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java).setAction(ACTION_STOP).putExtra(EXTRA_RUNTIME_EPOCH, runtimeEpoch), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_diplay_notification)
             .setContentTitle("DiPlay")
@@ -47,15 +51,22 @@ class DiPlaySessionService : Service() {
         } else startForeground(1, notification)
         return START_NOT_STICKY
     }
+    override fun onDestroy() {
+        CarPlayBackgroundSession.stopServiceOwner(runtimeEpoch)
+        super.onDestroy()
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         // BYD's recents force-stops the package ~10 ms after removing the task: end guidance first.
         if (com.shilapi.xcertplay.hud.BydOutputSettings.integrationAllowed(this)) {
             com.shilapi.xcertplay.hud.BydNavigationOutputs.endNow()
         }
-        CarPlayBackgroundSession.stop()
-        stopSelf()
+        val startId = latestStartId
+        val epoch = runtimeEpoch
+        CarPlayBackgroundSession.stopServiceOwner(epoch) { if (CarPlayBackgroundSession.ownsService(epoch)) stopSelfResult(startId) }
     }
     companion object {
+        const val EXTRA_RUNTIME_EPOCH = "runtime_epoch"
         const val ACTION_STOP = "com.shihab.diplay.DISCONNECT"
         private const val CHANNEL = "diplay_connection"
     }

@@ -99,7 +99,7 @@ class LocationReportingSettingsTest {
         for (enabled in listOf(true, false)) {
             val stop: ((() -> Unit) -> Unit) = { completion ->
                 stoppedWithSettings += AirPlayPersistence.loadLocationReportingEnabled(context)
-                CarPlayBackgroundSession.clear()
+                ReflectionHelpers.setField(CarPlayBackgroundSession, "stopAction", null)
                 completion()
             }
             ReflectionHelpers.setField(CarPlayBackgroundSession, "stopAction", stop)

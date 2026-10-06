@@ -28,6 +28,7 @@ internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
+    val completion = java.util.concurrent.CompletableFuture<Unit>()
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
         Log.i(TAG, message)
@@ -38,8 +39,10 @@ internal class MicrophoneUplink(
     @Volatile private var opusEncoder: OpusEncoder? = null
     @Volatile private var effects: List<AudioEffect> = emptyList()
     private var thread: Thread? = null
+    private var releaseFailure: Throwable? = null
 
-    fun start(): Boolean {
+    @Synchronized fun start(): Boolean {
+        if (completion.isDone) return false
         if (!running.compareAndSet(false, true)) return true
 
         val channelMask = if (config.channels >= 2) {
@@ -56,6 +59,7 @@ internal class MicrophoneUplink(
             Log.w(TAG, "microphone unavailable rate=${config.sampleRate} channels=${config.channels}")
             stats.failure(MicrophoneFailureStage.MIN_BUFFER, code = minBuffer)
             running.set(false)
+            completeRelease()
             return false
         }
 
@@ -65,14 +69,16 @@ internal class MicrophoneUplink(
             else -> MediaRecorder.AudioSource.MIC
         }
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
-            OpusEncoder(config.bitrate ?: 48_000).takeIf { it.available }
+            OpusEncoder(config.bitrate ?: 48_000)
         } else {
             null
         }
-        if (config.codec == AudioCodecKind.OPUS && nextEncoder == null) {
+        if (config.codec == AudioCodecKind.OPUS && nextEncoder?.available != true) {
             Log.w(TAG, "microphone Opus encoder is unavailable")
             stats.failure(MicrophoneFailureStage.ENCODER)
+            releaseResource { nextEncoder?.close() }
             running.set(false)
+            completeRelease()
             return false
         }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
@@ -91,16 +97,18 @@ internal class MicrophoneUplink(
         } catch (error: Exception) {
             Log.e(TAG, "microphone recorder creation failed", error)
             stats.failure(MicrophoneFailureStage.RECORDER_CREATION, error)
-            nextEncoder?.close()
+            releaseResource { nextEncoder?.close() }
             running.set(false)
+            completeRelease()
             return false
         }
         if (nextRecorder.state != AudioRecord.STATE_INITIALIZED) {
             Log.w(TAG, "microphone recorder failed to initialize")
             stats.failure(MicrophoneFailureStage.RECORDER_INITIALIZATION, code = nextRecorder.state)
-            nextRecorder.release()
-            nextEncoder?.close()
+            releaseResource { nextRecorder.release() }
+            releaseResource { nextEncoder?.close() }
             running.set(false)
+            completeRelease()
             return false
         }
 
@@ -112,9 +120,10 @@ internal class MicrophoneUplink(
         } catch (error: Exception) {
             Log.e(TAG, "microphone socket creation failed", error)
             stats.failure(MicrophoneFailureStage.SOCKET_CREATION, error)
-            nextRecorder.release()
-            nextEncoder?.close()
+            releaseResource { nextRecorder.release() }
+            releaseResource { nextEncoder?.close() }
             running.set(false)
+            completeRelease()
             return false
         }
 
@@ -134,6 +143,7 @@ internal class MicrophoneUplink(
             Log.e(TAG, "microphone recording failed", error)
             stats.failure(MicrophoneFailureStage.RECORDING, error)
             release()
+            completeRelease()
             false
         }
     }
@@ -173,6 +183,7 @@ internal class MicrophoneUplink(
         try {
             effect.release()
         } catch (error: RuntimeException) {
+            releaseFailure = error
             Log.w(TAG, "microphone effect release failed", error)
         }
     }
@@ -220,7 +231,8 @@ internal class MicrophoneUplink(
         } finally {
             stats.flush(ended = true, routeType = routeInfo)
             running.set(false)
-            release()
+            try { release(); completeRelease() }
+            catch (error: Throwable) { completion.completeExceptionally(error) }
         }
     }
 
@@ -265,30 +277,15 @@ internal class MicrophoneUplink(
 
     private fun routeType(recorder: AudioRecord): Int? = runCatching { recorder.routedDevice?.type }.getOrNull()
 
-    override fun close() {
-        if (!running.compareAndSet(true, false)) {
+    @Synchronized override fun close() {
+        running.set(false)
+        runCatching { recorder?.stop() }
+        runCatching { socket?.close() }
+        val worker = thread
+        if (worker == null) {
             release()
-            return
-        }
-        try {
-            recorder?.stop()
-        } catch (_: Exception) {
-            // Best effort; release below is authoritative.
-        }
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-            // Best effort.
-        }
-        thread?.let { worker ->
-            try {
-                worker.join(CLOSE_JOIN_MILLIS)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-            }
-            if (worker.isAlive) worker.interrupt()
-        }
-        release()
+            completeRelease()
+        } else worker.interrupt()
     }
 
     @Synchronized
@@ -299,26 +296,25 @@ internal class MicrophoneUplink(
         currentEffects.forEach(::releaseEffect)
         val currentRecorder = recorder
         recorder = null
-        try {
-            currentRecorder?.release()
-        } catch (_: Exception) {
-            // Best effort.
-        }
+        releaseResource { currentRecorder?.release() }
         val currentSocket = socket
         socket = null
-        try {
-            currentSocket?.close()
-        } catch (_: Exception) {
-            // Best effort.
-        }
+        releaseResource { currentSocket?.close() }
         val currentEncoder = opusEncoder
         opusEncoder = null
-        currentEncoder?.close()
+        releaseResource { currentEncoder?.close() }
+    }
+
+    private fun releaseResource(action: () -> Unit) {
+        try { action() } catch (error: Throwable) { releaseFailure = error }
+    }
+
+    private fun completeRelease() {
+        releaseFailure?.let { completion.completeExceptionally(it) } ?: completion.complete(Unit)
     }
 
     private companion object {
         const val TAG = "xcertplay-usb"
         const val MIN_READ_BYTES = 2_048
-        const val CLOSE_JOIN_MILLIS = 500L
     }
 }

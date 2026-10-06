@@ -28,6 +28,13 @@ internal object ConnectionEnvironmentSnapshot {
                 if (Build.VERSION.SDK_INT >= 31) Manifest.permission.BLUETOOTH_CONNECT else Manifest.permission.BLUETOOTH)
                 .joinToString(" ") { "${it.substringAfterLast('.')}=${context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED}" }
         }
+        section("Audio output") { com.shilapi.xcertplay.media.AudioOutputDiagnostics.snapshot(context) }
+        section("Hardware") {
+            val info = android.app.ActivityManager.MemoryInfo()
+            context.getSystemService(android.app.ActivityManager::class.java)?.getMemoryInfo(info)
+            "cpuCores=${Runtime.getRuntime().availableProcessors()} totalRamMiB=${info.totalMem / (1024 * 1024)} " +
+                "availableRamMiB=${info.availMem / (1024 * 1024)} lowMemory=${info.lowMemory}"
+        }
         section("Location") { "enabled=${context.getSystemService(LocationManager::class.java)?.isLocationEnabled}" }
         section("Bluetooth") {
             val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
@@ -41,6 +48,11 @@ internal object ConnectionEnvironmentSnapshot {
                 "credentialSaved=${AirPlayPersistence.loadManualHotspotPassphrase(context).isNotEmpty()} " +
                 "band=${AirPlayPersistence.loadManualHotspotBand(context)} channel=${AirPlayPersistence.loadManualHotspotChannel(context)} " +
                 "security=${AirPlayPersistence.loadManualHotspotSecurity(context)}"
+        }
+        section("Hotspot runtime") {
+            val lines = mutableListOf<String>()
+            com.shilapi.xcertplay.network.HotspotDiagnostics.capture(context, "export", lines::add)
+            lines.joinToString("\n")
         }
         section("WiFi") { "adapterState=${context.applicationContext.getSystemService(WifiManager::class.java)?.wifiState}" }
         section("Networks") {

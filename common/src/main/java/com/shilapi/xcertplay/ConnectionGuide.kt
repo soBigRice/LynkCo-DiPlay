@@ -31,7 +31,7 @@ internal object ConnectionGuide {
             State(R.string.link_hotspot, R.string.link_starting_receiver)
             else State(R.string.link_usb_network, R.string.link_usb_channel_hint)
         CarPlayStatus.DiscoveringIphone, CarPlayStatus.WaitingForIphone ->
-            State(R.string.link_usb, R.string.link_usb_hint)
+            State(R.string.link_usb, R.string.lynk_usb_quick_hint)
         CarPlayStatus.RequestingIphonePermission ->
             State(R.string.link_usb_permission_needed, R.string.link_usb_permission_prompt)
         CarPlayStatus.WaitingForReenumeration, CarPlayStatus.SelectingConfiguration ->

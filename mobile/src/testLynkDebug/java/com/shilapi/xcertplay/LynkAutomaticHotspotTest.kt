@@ -16,6 +16,13 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28])
 class LynkAutomaticHotspotTest {
     private val context get() = RuntimeEnvironment.getApplication()
+    @Test fun audioFocusDefaultsOnButPreservesAnExplicitChoice() {
+        context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
+        assertTrue(AirPlayPersistence.loadAudioFocusEnabled(context))
+        AirPlayPersistence.saveAudioFocusEnabled(context, false)
+        assertFalse(AirPlayPersistence.loadAudioFocusEnabled(context))
+    }
+
     @Test fun diagnosticPeekDoesNotRunTheAutomaticModeMigration() {
         val prefs = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
         prefs.edit().clear().putString("wireless_hotspot_mode", "MANUAL").commit()

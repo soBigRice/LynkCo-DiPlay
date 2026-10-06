@@ -63,7 +63,8 @@ class LynkPanelNavigationTest {
             assertHas(activity, R.string.save_diagnostic_report)
             assertHas(activity, R.string.choose_save_location)
             assertHas(activity, R.string.app_permissions)
-            click(activity, R.string.lynk_connection)
+            click(activity, R.string.lynk_general)
+            click(activity, R.string.link_setup)
             assertHas(activity, R.string.auto_hotspot_start)
             assertFalse(texts(activity).contains(activity.getString(R.string.link_save_connect)))
             click(activity, R.string.auto_hotspot_manual)
@@ -72,6 +73,22 @@ class LynkPanelNavigationTest {
             assertEquals(scale, AirPlayPersistence.loadDisplayScaleTenths(activity))
             assertEquals(buffer, AirPlayPersistence.loadMediaBufferMillis(activity))
             assertEquals(fps, AirPlayPersistence.loadFps(activity))
+        } finally { owner.destroy() }
+    }
+
+    @Test fun homeHasOnlyTwoConnectionChoicesAndSecondarySettings() {
+        val owner = Robolectric.buildActivity(DiPlayActivity::class.java).create()
+        try {
+            val activity = owner.get()
+            val buttons = views(activity.window.decorView).filterIsInstance<Button>()
+            assertEquals(3, buttons.size)
+            assertEquals(setOf(R.string.lynk_wireless, R.string.lynk_wired, R.string.settings).map(activity::getString).toSet(),
+                buttons.map { it.contentDescription?.toString() ?: it.text.toString() }.toSet())
+            assertHas(activity, R.string.lynk_upstream_credit)
+            click(activity, R.string.settings)
+            assertHas(activity, R.string.env_title)
+            assertHas(activity, R.string.lynk_export_short)
+            assertHas(activity, R.string.link_setup)
         } finally { owner.destroy() }
     }
 
@@ -107,7 +124,7 @@ class LynkPanelNavigationTest {
     private fun assertHas(activity: DiPlayActivity, text: Int) =
         assertTrue(activity.getString(text), activity.getString(text) in texts(activity))
     private fun click(activity: DiPlayActivity, text: Int) {
-        val buttons = views(activity.window.decorView).filterIsInstance<Button>().filter { it.text == activity.getString(text) }
+        val buttons = views(activity.window.decorView).filterIsInstance<Button>().filter { it.text == activity.getString(text) || it.contentDescription == activity.getString(text) }
         assertEquals("One reachable action: ${activity.getString(text)}", 1, buttons.size)
         assertTrue(buttons.single().performClick())
     }

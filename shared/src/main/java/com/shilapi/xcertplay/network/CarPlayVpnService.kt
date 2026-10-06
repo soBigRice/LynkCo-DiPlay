@@ -65,7 +65,16 @@ class CarPlayVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var attachGeneration = 0
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder? =
+        if (intent?.action == SERVICE_INTERFACE) super.onBind(intent) else binder
+
+    override fun onRevoke() {
+        val listener = synchronized(this) {
+            attachment?.listener.also { releaseLocked() }
+        }
+        listener?.onTransportError("VPN permission revoked; grant USB connection permission again")
+        super.onRevoke()
+    }
 
     @Synchronized
     fun attach(

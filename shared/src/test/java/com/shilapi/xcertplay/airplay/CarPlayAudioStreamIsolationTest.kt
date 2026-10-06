@@ -47,7 +47,7 @@ class CarPlayAudioStreamIsolationTest {
             assertNotNull(engine.onAudio(session, 102, setup("media")))
             stopped.clear()
             engine.onTeardown(session, 100)
-            assertEquals(setOf(AudioStreamId(100, "media"), AudioStreamId(100, "default")), stopped.toSet())
+            assertEquals(setOf(100 to "media", 100 to "default"), stopped.map { it.type to it.audioType }.toSet())
             assertEquals(setOf(CarPlayMediaEngine.StreamKey(session, 102, "media")), streams(engine).keys)
         } finally {
             engine.onSessionClosed(session)

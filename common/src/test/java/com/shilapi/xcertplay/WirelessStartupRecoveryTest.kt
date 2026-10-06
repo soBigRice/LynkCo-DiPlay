@@ -31,6 +31,13 @@ class WirelessStartupRecoveryTest {
         CarPlayBackgroundSession.clear()
         activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
+        ReflectionHelpers.setField(activity, "airPlayIdentity", com.shilapi.xcertplay.airplay.AirPlayIdentity.generate())
+        val sizeType = Class.forName("com.shilapi.xcertplay.CarPlayHostActivity\$DisplaySize")
+        val size = sizeType.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.newInstance(1280, 720)
+        val plan = activity.javaClass.getDeclaredMethod("createSessionPlan", sizeType)
+            .apply { isAccessible = true }.invoke(activity, size)
+        ReflectionHelpers.setField(CarPlayBackgroundSession, "currentPlan", plan)
         ReflectionHelpers.setField(CarPlayBackgroundSession, "owner", activity)
         retry = Button(activity).apply { visibility = View.GONE }
         ReflectionHelpers.setField(activity, "startupRetryButton", retry)
@@ -45,34 +52,34 @@ class WirelessStartupRecoveryTest {
         ReflectionHelpers.callInstanceMethod<(CarPlayStatus) -> Unit>(activity, "createStatusReporter",
             from(Int::class.javaPrimitiveType, generation))(status)
     }
-    private fun budget() = ReflectionHelpers.getField<WirelessStartupRetryBudget>(activity, "startupRetryBudget")
+    private fun budget() = ReflectionHelpers.getField<WirelessStartupRetryBudget>(CarPlayBackgroundSession, "retryBudget")
 
     @Test fun duplicateFailureAndCleanupErrorScheduleOnlyOneRetry() {
         report()
         report()
         report(status = CarPlayStatus.Failed("Bluetooth socket closed"))
         assertEquals(1, budget().retries)
-        assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertTrue(ReflectionHelpers.getField<ConnectionRetryScheduler>(CarPlayBackgroundSession, "retry").isScheduled)
     }
 
     @Test fun exhaustedBudgetStopsAutomaticRecoveryAndExposesRetry() {
         repeat(6) { generation ->
             ReflectionHelpers.setField(activity, "restartGeneration", generation)
-            ReflectionHelpers.callInstanceMethod<ConnectionRetryScheduler>(activity, "getReconnectScheduler").cancel()
+            ReflectionHelpers.getField<ConnectionRetryScheduler>(CarPlayBackgroundSession, "retry").cancel()
             report(generation)
         }
         assertEquals(5, budget().retries)
         assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
-        assertFalse(ReflectionHelpers.callInstanceMethod<ConnectionRetryScheduler>(activity, "getReconnectScheduler").isScheduled)
+        assertFalse(ReflectionHelpers.getField<ConnectionRetryScheduler>(CarPlayBackgroundSession, "retry").isScheduled)
         assertEquals(View.VISIBLE, retry.visibility)
         report(5, CarPlayStatus.Failed("Bluetooth socket closed"))
-        assertFalse(ReflectionHelpers.callInstanceMethod<ConnectionRetryScheduler>(activity, "getReconnectScheduler").isScheduled)
+        assertFalse(ReflectionHelpers.getField<ConnectionRetryScheduler>(CarPlayBackgroundSession, "retry").isScheduled)
     }
 
     @Test fun unrecoverableConfigurationDoesNotAutomaticallyRetry() {
         report(status = CarPlayStatus.Failed("Permission missing", startupFailure = WirelessStartupFailure.HOTSPOT_CONFIGURATION))
         assertEquals(0, budget().retries)
-        assertFalse(ReflectionHelpers.callInstanceMethod<ConnectionRetryScheduler>(activity, "getReconnectScheduler").isScheduled)
+        assertFalse(ReflectionHelpers.getField<ConnectionRetryScheduler>(CarPlayBackgroundSession, "retry").isScheduled)
         assertEquals(View.VISIBLE, retry.visibility)
     }
 

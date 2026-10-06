@@ -5,6 +5,13 @@ import android.content.Context
 import android.provider.Settings
 
 internal object DiPlayBluetooth {
+    // Never replace an explicitly selected phone just because it is temporarily absent.
+    // A renamed iPhone still matches its bond address; comparison tolerates old lowercase prefs.
+    fun preferredPhone(devices: Set<android.bluetooth.BluetoothDevice>, savedAddress: String?): android.bluetooth.BluetoothDevice? {
+        if (savedAddress != null) return devices.firstOrNull { it.address.equals(savedAddress, ignoreCase = true) }
+        return devices.filter { it.name?.contains("iPhone", ignoreCase = true) == true }.singleOrNull()
+    }
+
     fun configuredHeadUnitAddress(context: Context): String? =
         addressCandidates(context).firstNotNullOfOrNull {
             com.shilapi.xcertplay.transport.HeadUnitBluetoothAddress.normalize(it)

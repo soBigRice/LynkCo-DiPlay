@@ -44,6 +44,8 @@ class LocalOnlyHotspotManager(
         ?: throw IllegalStateException("WifiManager is unavailable")
     private val stateLock = Object()
 
+    private val requestBroker = LocalHotspotRequestBroker.process
+    @Volatile private var requestTicket: LocalHotspotRequestBroker.Ticket? = null
     private var startAttempt: StartAttempt? = null
     private var reservation: WifiManager.LocalOnlyHotspotReservation? = null
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -74,18 +76,25 @@ class LocalOnlyHotspotManager(
         val radioInfo = LocalOnlyHotspotRadioInfo(wifiManager)
         var observerAdopted = false
         val deadlineNanos = deadlineAfter(timeoutMillis)
-        val previousAddresses = activeInterfaces().flatMap { it.siteLocalIpv4Addresses() }.toSet()
-        val previousUpstreams = upstreamInterfaceNames()
 
         try {
             ensureStartActive(attempt)
+            val ticket = requestBroker.acquire(deadlineNanos) {
+                synchronized(stateLock) { closed || startAttempt !== attempt || attempt.stopped }
+            }
+            requestTicket = ticket
+            attempt.ticket = ticket
+            ensureStartActive(attempt)
+            // A preceding abandoned request may have changed the interfaces while we waited.
+            val previousAddresses = activeInterfaces().flatMap { it.siteLocalIpv4Addresses() }.toSet()
+            val previousUpstreams = upstreamInterfaceNames()
             if (allowTwoPointFour) {
                 if (!contextLocationEnabled()) throw IOException("Location mode is not enabled for LocalOnlyHotspot")
-                if (CarHotspotStatus.isEnabled(appContext) == true) throw IOException("LocalOnlyHotspot incompatible mode: existing shared car hotspot is on")
+                if (CarHotspotStatus.isTetheringEnabled(appContext) == true) throw IOException("LocalOnlyHotspot incompatible mode: existing shared car hotspot is on")
             }
             onDiagnostic("LocalOnlyHotspot starting with Wi-Fi client enabled=${wifiManager.isWifiEnabled}")
             disconnectTwoPointFourStation()
-            val requestedChannel = requestHotspot(createCallback(attempt))
+            val requestedChannel = requestBroker.submit(ticket) { requestHotspot(createCallback(attempt)) }
 
             val activeReservation = awaitStart(attempt, deadlineNanos, timeoutMillis)
             radioInfo.start()
@@ -313,7 +322,6 @@ class LocalOnlyHotspotManager(
     }
 
     override fun close() {
-        val activeReservation: WifiManager.LocalOnlyHotspotReservation?
         val activeMulticastLock: WifiManager.MulticastLock?
         val activeObserver: LocalOnlyHotspotRadioInfo?
         synchronized(stateLock) {
@@ -321,7 +329,6 @@ class LocalOnlyHotspotManager(
             closed = true
             startAttempt?.stopped = true
             stateLock.notifyAll()
-            activeReservation = reservation
             activeMulticastLock = multicastLock
             activeObserver = radioObserver
             radioObserver = null
@@ -331,7 +338,7 @@ class LocalOnlyHotspotManager(
 
         releaseMulticastLock(activeMulticastLock)
         activeObserver?.close()
-        activeReservation?.close()
+        requestTicket?.let(requestBroker::release)
     }
 
     private fun createCallback(attempt: StartAttempt): WifiManager.LocalOnlyHotspotCallback =
@@ -339,6 +346,8 @@ class LocalOnlyHotspotManager(
             override fun onStarted(
                 reservation: WifiManager.LocalOnlyHotspotReservation,
             ) {
+                val ticket = attempt.ticket ?: return
+                if (!requestBroker.started(ticket, reservation)) return
                 val closeReservation = synchronized(stateLock) {
                     if (
                         closed ||
@@ -353,14 +362,15 @@ class LocalOnlyHotspotManager(
                         false
                     }
                 }
-                if (closeReservation) reservation.close()
+                if (closeReservation) requestBroker.release(ticket)
             }
 
             override fun onFailed(reason: Int) {
+                attempt.ticket?.let(requestBroker::finished)
                 synchronized(stateLock) {
                     if (startAttempt === attempt && attempt.failure == null) {
                         attempt.failure = IOException(
-                            "LocalOnlyHotspot failed: ${failureReason(reason)}",
+                            "LocalOnlyHotspot failed: ${failureReason(reason)} (reason=$reason api=${Build.VERSION.SDK_INT})",
                         )
                         stateLock.notifyAll()
                     }
@@ -368,6 +378,7 @@ class LocalOnlyHotspotManager(
             }
 
             override fun onStopped() {
+                attempt.ticket?.let(requestBroker::finished)
                 var lockToRelease: WifiManager.MulticastLock? = null
                 var notifyStop = false
                 synchronized(stateLock) {
@@ -676,15 +687,13 @@ class LocalOnlyHotspotManager(
         attempt: StartAttempt,
         multicastLock: WifiManager.MulticastLock?,
     ) {
-        val failedReservation: WifiManager.LocalOnlyHotspotReservation?
         synchronized(stateLock) {
             if (startAttempt === attempt) startAttempt = null
             attempt.stopped = true
             stateLock.notifyAll()
-            failedReservation = attempt.reservation
         }
         releaseMulticastLock(multicastLock)
-        failedReservation?.close()
+        attempt.ticket?.let(requestBroker::release)
     }
 
     private fun waitNanos(nanos: Long) {
@@ -836,6 +845,7 @@ class LocalOnlyHotspotManager(
     }
 
     private class StartAttempt {
+        @Volatile var ticket: LocalHotspotRequestBroker.Ticket? = null
         var reservation: WifiManager.LocalOnlyHotspotReservation? = null
         var failure: IOException? = null
         var stopped = false

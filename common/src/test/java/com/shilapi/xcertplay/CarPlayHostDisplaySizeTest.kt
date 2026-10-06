@@ -40,17 +40,24 @@ import org.robolectric.shadows.ShadowLog
 @Config(sdk = [29])
 @LooperMode(LooperMode.Mode.PAUSED)
 class CarPlayHostDisplaySizeTest {
+    private val closeCallbacks = mutableListOf<() -> Unit>()
     private lateinit var activity: CarPlayHostActivity
     private lateinit var controllerConstruction: MockedConstruction<CarPlayController>
     private val sizeClass = Class.forName("com.shilapi.xcertplay.CarPlayHostActivity\$DisplaySize")
 
     @Before fun setUp() {
+        CarPlayBackgroundSession.clear()
         activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        setField("airPlayIdentity", AirPlayIdentity.generate())
         AirPlayPersistence.saveAdaptPipResolution(activity, false)
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.WIFI_P2P)
         // Source-only tests have no provisioned local authentication identity.
         AirPlayPersistence.saveMfiTarget(activity, MfiTarget.USB_CH341)
         // Exercise host startup without launching vendor-service workers or real transports.
-        controllerConstruction = mockConstruction(CarPlayController::class.java)
+        controllerConstruction = mockConstruction(CarPlayController::class.java) { mock, _ ->
+            org.mockito.Mockito.doAnswer { call -> closeCallbacks += call.getArgument<() -> Unit>(0); null }
+                .`when`(mock).whenClosed(org.mockito.ArgumentMatchers.any<() -> Unit>() ?: {})
+        }
         (getField("teardownExecutor") as ExecutorService).shutdownNow()
         setField("teardownExecutor", PausedExecutorService())
         CarPlayBackgroundSession::class.java.getDeclaredField("owner").apply { isAccessible = true }
@@ -442,6 +449,12 @@ class CarPlayHostDisplaySizeTest {
         CarPlaySessionDisplay(canvasWidth, canvasHeight, rotation, true, true, windowWidth, windowHeight).also {
             setField("activeDisplaySize", size(windowWidth, windowHeight))
             setField("sessionDisplay", it)
+            val controller = org.mockito.Mockito.mock(CarPlayController::class.java)
+            org.mockito.Mockito.doAnswer { call -> closeCallbacks += call.getArgument<() -> Unit>(0); null }
+                .`when`(controller).whenClosed(org.mockito.ArgumentMatchers.any<() -> Unit>() ?: {})
+            val sink = AndroidMediaSink()
+            setField("controller", controller); setField("sink", sink)
+            CarPlayBackgroundSession.store(controller, sink, windowWidth, windowHeight, activity, it)
         }
 
     private fun keepLogs(): Int = ShadowLog.getLogsForTag("xcertplay-usb").count {
@@ -456,7 +469,8 @@ class CarPlayHostDisplaySizeTest {
     }
 
     private fun finishTeardown() {
-        (getField("teardownExecutor") as PausedExecutorService).runAll()
+        val callbacks = closeCallbacks.toList(); closeCallbacks.clear()
+        callbacks.forEach { it() }
         shadowOf(Looper.getMainLooper()).idle()
     }
 

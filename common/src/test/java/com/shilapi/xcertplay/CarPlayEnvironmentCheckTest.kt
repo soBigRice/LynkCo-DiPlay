@@ -55,6 +55,14 @@ class CarPlayEnvironmentCheckTest {
     @Test fun idleBluetoothOffNeedsAction() {
         assertEquals(EnvironmentAction.BLUETOOTH, report(ready().copy(bluetoothEnabled = false)).item("bluetooth_power").action)
     }
+    @Test fun lynkHotspotSwitchIsNotProofOfReachableAccessPoint() {
+        val manual = ready().copy(automaticHotspot = false, manualConfigured = true, lynkProfile = true)
+        assertEquals(EnvironmentState.VERIFY, report(manual.copy(systemHotspot = true)).item("hotspot_enabled").state)
+        assertEquals(EnvironmentState.ACTION, report(manual.copy(systemHotspot = false)).item("hotspot_enabled").state)
+        assertEquals(EnvironmentState.VERIFY, report(manual.copy(systemHotspot = null)).item("hotspot_enabled").state)
+        assertEquals(EnvironmentState.PASS, report(manual.copy(systemHotspot = true, lynkProfile = false)).item("hotspot_enabled").state)
+    }
+
     @Test fun manualHotspotDoesNotRequireLocationSwitchOrAutomaticApi() {
         val report = report(ready().copy(automaticHotspot = false, manualConfigured = true,
             locationEnabled = false, automaticSupported = false, systemHotspot = true))

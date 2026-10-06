@@ -1,4 +1,5 @@
 <resources>
+    <bool name="config_lynk_osn_profile">false</bool>
     <bool name="config_wired_lab_diagnostics">true</bool>
     <bool name="config_lynk_local_hotspot">false</bool>
     <!-- Overridden by the LYNK OS N APK; upstream BYD behavior stays enabled. -->

@@ -10,6 +10,7 @@ import java.io.Closeable
  * microphone uplink.
  */
 internal class OpusEncoder(bitrate: Int) : Closeable {
+    private var releaseFailure: Throwable? = null
     private val codec: MediaCodec? = createCodec(bitrate)
 
     private fun createCodec(bitrate: Int): MediaCodec? {
@@ -32,6 +33,7 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
         } catch (error: Exception) {
             candidate?.let {
                 runCatching { it.release() }.onFailure { releaseError ->
+                    releaseFailure = releaseError
                     Log.w(TAG, "failed to release rejected Opus encoder", releaseError)
                 }
             }
@@ -123,17 +125,14 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
     override fun close() {
         if (closed) return
         closed = true
+        releaseFailure?.let { throw it }
         val codec = codec ?: return
         try {
             codec.stop()
         } catch (_: Exception) {
             // Best effort.
         }
-        try {
-            codec.release()
-        } catch (_: Exception) {
-            // Best effort.
-        }
+        codec.release()
     }
 
     private companion object {

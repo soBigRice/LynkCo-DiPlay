@@ -44,7 +44,7 @@ internal data class EnvironmentFacts(
     val bluetoothEnabled: Boolean?, val phonePaired: Boolean?, val locationPermission: Boolean, val nearbyWifiPermission: Boolean,
     val locationEnabled: Boolean?, val automaticHotspot: Boolean, val automaticSupported: Boolean,
     val manualConfigured: Boolean?, val systemHotspot: Boolean?, val sessionPresent: Boolean,
-    val sessionActive: Boolean, val errors: List<String> = emptyList(),
+    val sessionActive: Boolean, val lynkProfile: Boolean = false, val errors: List<String> = emptyList(),
 )
 
 internal data class EnvironmentReport(val capturedAt: Long, val facts: EnvironmentFacts, val items: List<EnvironmentItem>) {
@@ -123,7 +123,8 @@ internal object CarPlayEnvironmentCheck {
             },
             // The hidden getter is best effort. Failure stays unknown and does not start a hotspot to probe it.
             systemHotspot = read("hotspot_state") { CarHotspotStatus.isEnabled(app) },
-            sessionPresent = session, sessionActive = CarPlayBackgroundSession.active, errors = errors.toList(),
+            sessionPresent = session, sessionActive = CarPlayBackgroundSession.active,
+            lynkProfile = app.resources.getBoolean(R.bool.config_simple_connection_flow), errors = errors.toList(),
         )
         return evaluate(facts)
     }
@@ -180,7 +181,9 @@ internal object CarPlayEnvironmentCheck {
                 R.string.env_hotspot_conflict_ok, R.string.env_hotspot_conflict_bad, EnvironmentAction.CONNECTION)
         } else {
             check("hotspot_config", wireless, f.manualConfigured, R.string.env_hotspot_config, R.string.env_hotspot_config_ok, R.string.env_hotspot_config_bad, EnvironmentAction.CONNECTION)
-            check("hotspot_enabled", wireless, f.systemHotspot, R.string.env_hotspot_switch, R.string.env_hotspot_on, R.string.env_hotspot_off, EnvironmentAction.CONNECTION)
+            if (f.lynkProfile && f.systemHotspot == true) {
+                add("hotspot_enabled", wireless, EnvironmentState.VERIFY, R.string.env_hotspot_switch, R.string.env_hotspot_on)
+            } else check("hotspot_enabled", wireless, f.systemHotspot, R.string.env_hotspot_switch, R.string.env_hotspot_on, R.string.env_hotspot_off, EnvironmentAction.CONNECTION)
         }
         add("wireless_handoff", wireless, EnvironmentState.VERIFY, R.string.env_handoff, R.string.env_handoff_pending)
         return EnvironmentReport(now, f, items)

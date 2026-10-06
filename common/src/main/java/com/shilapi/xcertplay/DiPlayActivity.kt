@@ -6,9 +6,13 @@ import android.Manifest
 import android.app.AlertDialog
 import android.app.Dialog
 import android.view.Window
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -73,6 +77,14 @@ class DiPlayActivity : ComponentActivity() {
     private var disconnectButton: Button? = null
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
+    private var phonePickerShowing = false
+    private val wirelessPreparationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            // Read the actual bond/radio state, not the broadcast extras. Enabling Bluetooth
+            // and returning from OEM settings can complete after the activity result.
+            resumeWirelessPreparation()
+        }
+    }
     private val simpleConnectionFlow get() = resources.getBoolean(R.bool.config_simple_connection_flow)
     private var bluetoothRecoveryInProgress = false
     private var bluetoothRecoveryError = false
@@ -147,7 +159,15 @@ class DiPlayActivity : ComponentActivity() {
         override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
     }
     private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) choosePhone() else permissionHelp(getString(R.string.nearby_devices), getString(R.string.allow_nearby_devices_so_diplay_can_connect_to_your_paired))
+        if (granted) {
+            if (simpleConnectionFlow && pendingWireless) connect(true) else choosePhone()
+        } else permissionHelp(getString(R.string.nearby_devices), getString(R.string.allow_nearby_devices_so_diplay_can_connect_to_your_paired))
+    }
+    private val wirelessBluetoothSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        resumeWirelessPreparation()
+    }
+    private val enableWirelessBluetooth = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        resumeWirelessPreparation()
     }
     private val locationPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (hasPreciseLocation()) {
@@ -181,6 +201,7 @@ class DiPlayActivity : ComponentActivity() {
             android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
             getString(R.string.setup_error_auth)
         }
+        pendingWireless = savedInstanceState?.getBoolean("pending_wireless") ?: false
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
         bydVehicleAdvancedExpanded = savedInstanceState?.getBoolean("byd_vehicle_advanced") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "home"
@@ -194,7 +215,7 @@ class DiPlayActivity : ComponentActivity() {
         handleDiagnosticExport()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (page != "home") { page = "home"; render() }
+                if (page != "home") { pendingWireless = false; page = "home"; render() }
                 else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
             }
         })
@@ -202,6 +223,7 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent)
+        pendingWireless = false
         page = intent.getStringExtra("page") ?: "home"; render()
         if (page == "environment") checkEnvironment()
         automaticVehicleValidationStarted = false
@@ -218,6 +240,7 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("pending_wireless", pendingWireless)
         outState.putString("page", page)
         outState.putString("lynk_settings_group", settingsGroup.name)
         outState.putBoolean("pending_car_hotspot", pendingCarHotspotSetup)
@@ -234,10 +257,15 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (simpleConnectionFlow) androidx.core.content.ContextCompat.registerReceiver(this,
+            wirelessPreparationReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply {
+                addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            }, androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         CenterMapOverlay.onDiPlayScreenShown()
     }
 
     override fun onStop() {
+        if (simpleConnectionFlow) unregisterReceiver(wirelessPreparationReceiver)
         clusterSafeAreaDialog?.dismiss()
         startupHotspotCancelled = true
         super.onStop()
@@ -250,7 +278,8 @@ class DiPlayActivity : ComponentActivity() {
             recreate()
             return
         }
-        recoverBluetoothIfNeeded()
+        recoverBluetoothIfNeeded { resumeWirelessPreparation() }
+        if (simpleConnectionFlow && pendingWireless && page == "wireless") handler.post { resumeWirelessPreparation() }
         handler.removeCallbacks(tick); handler.post(tick)
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch && !adbSwitchChangePending && !pausedForAdbSwitchChange &&
@@ -261,6 +290,7 @@ class DiPlayActivity : ComponentActivity() {
             initialLaunch = false
             startCarHotspotOnLaunch()
             if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
+                (!simpleConnectionFlow || (page == "home" && !pendingWireless)) &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
             }
@@ -481,59 +511,23 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun renderLynkPanel() {
-        val wide = resources.configuration.screenWidthDp >= 720
-        val shell = LinearLayout(this).apply {
-            orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            setBackgroundColor(BG)
-        }
-        val navigation = LinearLayout(this).apply {
-            orientation = if (wide) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(16), dp(12), dp(16))
-            setBackgroundColor(SURFACE)
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        val destinations = listOf(
-            Triple("home", R.string.lynk_home, R.drawable.ic_lynk_home),
-            Triple("connection", R.string.lynk_connection, R.drawable.ic_dp_connection),
-            Triple("environment", R.string.env_nav, R.drawable.ic_dp_permissions),
-            Triple("settings", R.string.settings, R.drawable.ic_lynk_settings),
-        )
-        if (wide) navigation.addView(label("03", 26, TEXT, true).apply {
-            gravity = Gravity.CENTER; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(-1, dp(64)))
-        destinations.forEach { (destination, title, icon) ->
-            val selected = page == destination || (page == "about" && destination == "settings")
-            val item = button(getString(title), false) {
-                page = destination
-                if (destination == "environment") checkEnvironment() else render()
-            }.apply {
-                textSize = if (wide) 14f else 13f; isSelected = selected
-                setTextColor(if (selected) ACCENT else MUTED)
-                background = LynkPanelStyle.shape(this@DiPlayActivity,
-                    if (selected) LynkPanelStyle.raised else SURFACE,
-                    if (selected) LynkPanelStyle.raised else SURFACE, 10)
-                val glyph = getDrawable(icon)?.mutate()?.apply {
-                    setTint(if (selected) ACCENT else MUTED); setBounds(0, 0, dp(24), dp(24))
-                }
-                if (wide) setCompoundDrawables(null, glyph, null, null)
-                compoundDrawablePadding = dp(8)
-            }
-            navigation.addView(item, if (wide) LinearLayout.LayoutParams(-1, dp(76)).apply { bottomMargin = dp(6) }
-                else LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginEnd = dp(6) })
-        }
-        shell.addView(navigation, if (wide) LinearLayout.LayoutParams(dp(106), -1) else LinearLayout.LayoutParams(-1, -2))
+        val shell = column().apply { setBackgroundColor(BG) }
         val body = column().apply { setPadding(dp(28), dp(16), dp(28), dp(12)) }
         val header = row().apply { gravity = Gravity.CENTER_VERTICAL }
-        val brand = column().apply {
-            addView(label(getString(R.string.lynk_panel_brand), 20, TEXT, true).apply { letterSpacing = .12f })
-            addView(label(getString(R.string.lynk_panel_subtitle), 12, MUTED))
+        if (page != "home") header.addView(button(getString(R.string.lynk_home), false) {
+            pendingWireless = false; page = "home"; render()
+        }, LinearLayout.LayoutParams(dp(96), dp(48)).apply { marginEnd = dp(20) })
+        header.addView(label(getString(R.string.lynk_panel_brand), 20, TEXT, true).apply {
+            letterSpacing = .12f
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        if (CarPlayBackgroundSession.hasSession() &&
+            (page == "home" || page == "settings" || resources.configuration.screenWidthDp >= 600)) {
+            header.addView(button(getString(R.string.video_back_to_carplay), false) { openProjection() },
+                LinearLayout.LayoutParams(dp(144), dp(48)).apply { marginEnd = dp(12) })
         }
-        header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
-        val hasSession = CarPlayBackgroundSession.hasSession()
-        header.addView(button(getString(if (hasSession) R.string.video_back_to_carplay else R.string.car_home), false) {
-            if (CarPlayBackgroundSession.hasSession()) openProjection()
-            else startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
-        }, LinearLayout.LayoutParams(dp(144), dp(48)))
+        if (page != "settings") header.addView(button(getString(R.string.settings), false) {
+            pendingWireless = false; page = "settings"; render()
+        }, LinearLayout.LayoutParams(dp(96), dp(48)))
         body.addView(header)
         if (page == "settings") {
             val categories = row()
@@ -554,12 +548,13 @@ class DiPlayActivity : ComponentActivity() {
             "environment" -> EnvironmentCheckPanel.render(content, environmentReport, environmentRunning, environmentFailed,
                 environmentGroup, { environmentGroup = it; render() }, ::checkEnvironment,
                 { exportDiagnostics() }, ::resolveEnvironmentIssue)
+            "wireless" -> wirelessPreparation(content)
             "connection" -> simpleConnectionSetup(content)
             "settings" -> settings(content)
             "about" -> about(content)
             else -> connectionHome(content)
         }
-        shell.addView(body, if (wide) LinearLayout.LayoutParams(0, -1, 1f) else LinearLayout.LayoutParams(-1, 0, 1f))
+        shell.addView(body, LinearLayout.LayoutParams(-1, -1))
         setContentView(shell)
         refreshStatus()
     }
@@ -597,73 +592,154 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun connectionHome(content: LinearLayout) {
-        val wide = resources.configuration.screenWidthDp >= 840
-        val panels = LinearLayout(this).apply { orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
-        val summary = card()
-        summary.addView(label(getString(R.string.lynk_home_kicker), 11, ACCENT, true).apply { letterSpacing = .12f })
-        summary.addView(label(getString(R.string.carplay), 38, TEXT, true).apply { setPadding(0, dp(8), 0, 0) })
-        summary.addView(label(getString(R.string.lynk_home_subline), 16, MUTED).apply { setPadding(0, dp(2), 0, dp(22)) })
-        summary.addView(label(getString(R.string.lynk_status), 12, ACCENT, true))
-        status = label("", 19, TEXT, true).apply {
-            setPadding(0, dp(6), 0, dp(14)); accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        content.gravity = Gravity.CENTER_VERTICAL
+        content.addView(label(getString(R.string.carplay), 32, TEXT, true).apply {
+            setPadding(0, 0, 0, dp(20))
+        })
+        val wide = resources.configuration.screenWidthDp >= 600
+        val methods = LinearLayout(this).apply {
+            orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
         }
-        summary.addView(status)
-        val phone = if (DiPlayPreferences.phoneAddress(this) == null) getString(R.string.link_phone_unselected)
-            else getString(R.string.link_saved_phone, DiPlayPreferences.phoneName(this))
-        summary.addView(label(phone, 14, MUTED))
-        if (automaticHotspot) summary.addView(label(getString(R.string.auto_hotspot_title), 13, MUTED))
-        else if (storedSsid().isNotEmpty()) summary.addView(label(getString(R.string.link_saved_hotspot, storedSsid()), 15, MUTED).apply { setPadding(0, dp(6), 0, 0) })
-        val controls = card()
-        controls.addView(label(getString(R.string.lynk_connection_methods), 21, TEXT, true))
-        controls.addView(label(getString(R.string.lynk_connect_hint_short), 14, MUTED).apply { setPadding(0, dp(6), 0, dp(16)) })
-        connectButton = button(getString(R.string.lynk_wireless), true) {
-            if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(true)
+        fun tile(title: Int, detail: Int, icon: Int, action: () -> Unit): Button {
+            val name = getString(title)
+            val copy = "$name\n${getString(detail)}"
+            return button(copy, false, action).apply {
+                contentDescription = name
+                textSize = 25f
+                text = android.text.SpannableString(copy).apply {
+                    setSpan(android.text.style.RelativeSizeSpan(.56f), name.length + 1, length, 0)
+                    setSpan(android.text.style.ForegroundColorSpan(MUTED), name.length + 1, length, 0)
+                }
+                setLineSpacing(dp(12).toFloat(), 1f)
+                setPadding(dp(24), dp(28), dp(24), dp(28))
+                backgroundTintList = ColorStateList.valueOf(SURFACE)
+                val glyph = getDrawable(icon)?.mutate()?.apply {
+                    setTint(ACCENT); setBounds(0, 0, dp(42), dp(42))
+                }
+                setCompoundDrawables(null, glyph, null, null)
+                compoundDrawablePadding = dp(22)
+                minimumHeight = dp(200)
+            }
         }
-        controls.addView(connectButton, matchButton(0, 54))
-        controls.addView(button(getString(R.string.lynk_wired), false) { connect(false) }, matchButton(10, 54))
-        val actions = row()
-        actions.addView(button(getString(R.string.link_setup), false) { page = "connection"; render() }.apply { textSize = 14f }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        actions.addView(space(10), LinearLayout.LayoutParams(dp(10), 1))
-        actions.addView(button(getString(R.string.link_change_phone), false) { pendingWireless = false; choosePhone() }.apply { textSize = 14f }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        controls.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-        disconnectButton = button(getString(R.string.disconnect), false) {
-            disconnectButton?.isEnabled = false
-            CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
-        }.apply { visibility = View.GONE }
-        controls.addView(disconnectButton, matchButton(12, 56))
-        panels.addView(summary, if (wide) LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(18) } else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
-        panels.addView(controls, if (wide) LinearLayout.LayoutParams(0, -2, 1f) else LinearLayout.LayoutParams(-1, -2))
-        content.addView(panels)
+        methods.addView(tile(R.string.lynk_wireless,
+            if (automaticHotspot) R.string.lynk_wireless_caption else R.string.lynk_manual_caption,
+            R.drawable.ic_dp_connection) {
+            startLynkConnection(true)
+        }, if (wide) LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) }
+            else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+        methods.addView(tile(R.string.lynk_wired, R.string.lynk_wired_caption, R.drawable.ic_lynk_usb) {
+            startLynkConnection(false)
+        }, if (wide) LinearLayout.LayoutParams(0, -2, 1f) else LinearLayout.LayoutParams(-1, -2))
+        content.addView(methods)
+        status = label("", 14, MUTED).apply {
+            setPadding(0, dp(16), 0, 0)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        content.addView(status)
+        content.addView(label(getString(R.string.lynk_upstream_credit), 12, MUTED).apply {
+            setPadding(0, dp(24), 0, 0)
+        })
         setupError?.let { content.addView(label(it, 16, WARNING).apply { setPadding(0, dp(12), 0, 0) }) }
-        val health = row().apply {
-            gravity = Gravity.CENTER_VERTICAL; background = LynkPanelStyle.shape(this@DiPlayActivity)
-            setPadding(dp(20), dp(14), dp(20), dp(14))
+    }
+
+    /** A prerequisite page, shown only when a wireless start needs user input. */
+    private fun wirelessPreparation(content: LinearLayout) {
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        val allowed = Build.VERSION.SDK_INT < 31 ||
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        val enabled = allowed && adapter?.isEnabled == true
+        val hasBonds = enabled && adapter?.bondedDevices?.isNotEmpty() == true
+        val saved = DiPlayPreferences.phoneAddress(this)
+        content.addView(label(getString(R.string.lynk_wireless), 28, TEXT, true))
+        val body = card()
+        val title = when {
+            !allowed -> R.string.link_permission_needed
+            adapter == null -> R.string.link_bluetooth_failed
+            !enabled -> R.string.turn_on_bluetooth
+            saved != null || hasBonds -> R.string.lynk_choose_paired
+            else -> R.string.lynk_pair_once
         }
-        val healthCopy = column().apply {
-            addView(label(getString(R.string.env_home_copy), 17, TEXT, true))
-            val report = environmentReport
-            addView(label(if (report == null) getString(R.string.env_home_idle) else
-                getString(R.string.env_summary, report.items.count { it.state == EnvironmentState.ACTION },
-                    report.items.count { it.state == EnvironmentState.VERIFY }), 13, MUTED))
+        val detail = when {
+            !allowed -> R.string.allow_nearby_devices_so_diplay_can_connect_to_your_paired
+            adapter == null -> R.string.link_bluetooth_fix
+            !enabled -> R.string.lynk_enable_bluetooth_hint
+            saved != null -> R.string.lynk_saved_phone_missing
+            hasBonds -> R.string.lynk_pick_once
+            else -> R.string.lynk_first_pair_hint
         }
-        health.addView(healthCopy, LinearLayout.LayoutParams(0, -2, 1f))
-        health.addView(button(getString(R.string.env_title), false) { page = "environment"; checkEnvironment() },
-            LinearLayout.LayoutParams(dp(146), dp(50)).apply { marginStart = dp(16) })
-        content.addView(health, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
-        val footer = row().apply { gravity = Gravity.CENTER_VERTICAL }
-        footer.addView(button(getString(R.string.lynk_export_short), false) { exportDiagnostics() }.apply {
-            contentDescription = getString(R.string.link_export)
-        }.apply { textSize = 14f }, LinearLayout.LayoutParams(dp(130), dp(48)))
-        footer.addView(column().apply {
-            setPadding(dp(16), 0, dp(12), 0)
-            addView(label(getString(R.string.lynk_upstream_credit), 13, TEXT))
-            addView(label(getString(R.string.lynk_export_copy), 12, MUTED))
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        footer.addView(label("DiPlay · " + version().substringAfterLast("-"), 12, MUTED))
-        content.addView(footer, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        body.addView(label(getString(title), 23, TEXT, true))
+        body.addView(label(getString(detail), 17, MUTED).apply { setPadding(0, dp(12), 0, dp(12)) })
+        if (saved != null) body.addView(label(getString(R.string.link_saved_phone, DiPlayPreferences.phoneName(this)), 15, ACCENT))
+        if (!allowed || (adapter != null && !enabled)) {
+            body.addView(button(getString(if (allowed) R.string.turn_on_bluetooth else R.string.lynk_continue), true) {
+                connect(true)
+            }, matchButton(16, 56))
+        } else if (enabled) {
+            body.addView(button(getString(R.string.bluetooth_settings), true) {
+                pendingWireless = true
+                wirelessBluetoothSettings.launch(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            }, matchButton(16, 56))
+            body.addView(button(getString(R.string.lynk_choose_paired), false) {
+                pendingWireless = true; choosePhone()
+            }, matchButton(12, 56))
+        } else {
+            body.addView(button(getString(R.string.connect_with_usb), true) { connect(false) }, matchButton(16, 56))
+        }
+        content.addView(body, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+        content.addView(label(getString(if (automaticHotspot) R.string.lynk_wireless_next else R.string.link_pair_hint), 15, MUTED).apply { setPadding(0, dp(18), 0, 0) })
+    }
+
+    private fun rememberedBondedPhone(): BluetoothDevice? {
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return null
+        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return null
+        if (!adapter.isEnabled) return null // Off is not an unpair event; keep the saved selection.
+        return DiPlayBluetooth.preferredPhone(adapter.bondedDevices.orEmpty(), DiPlayPreferences.phoneAddress(this))
+    }
+
+    private fun resumeWirelessPreparation() {
+        if (!simpleConnectionFlow || !pendingWireless || page != "wireless" || phonePickerShowing ||
+            isFinishing || isDestroyed || bluetoothRecoveryInProgress) return
+        if (rememberedBondedPhone() != null) connect(true) else render()
+    }
+
+    private fun prepareLynkWireless(): Boolean {
+        pendingWireless = true
+        val phone = rememberedBondedPhone()
+        if (phone != null) {
+            DiPlayPreferences.savePhone(this, phone.address, phone.name ?: DiPlayPreferences.phoneName(this))
+            pendingWireless = false
+            return true
+        }
+        page = "wireless"
+        render()
+        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+            if (adapter != null && !adapter.isEnabled) {
+                runCatching { enableWirelessBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)) }
+                    .onFailure { toast(getString(R.string.lynk_enable_bluetooth_hint)) }
+            } else if (adapter?.bondedDevices?.isNotEmpty() == true && !phonePickerShowing) choosePhone()
+        }
+        return false
     }
 
     private fun settings(content: LinearLayout) {
+        if (simpleConnectionFlow && settingsGroup == LynkSettingsGroup.GENERAL) {
+            val utilities = row()
+            listOf(R.string.link_setup to "connection", R.string.env_title to "environment").forEach { (title, destination) ->
+                utilities.addView(button(getString(title), false) {
+                    page = destination
+                    if (destination == "environment") checkEnvironment() else render()
+                }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginEnd = dp(10) })
+            }
+            utilities.addView(button(getString(R.string.lynk_export_short), false) { exportDiagnostics() },
+                LinearLayout.LayoutParams(0, dp(56), 1f))
+            content.addView(utilities, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
+            if (CarPlayBackgroundSession.hasSession()) content.addView(button(getString(R.string.disconnect), false) {
+                CarPlayBackgroundSession.stop { runOnUiThread { render() } }
+            }, matchButton(0, 56))
+        }
         content.addView(label(getString(if (simpleConnectionFlow) R.string.settings else R.string.your_drive_your_way), if (simpleConnectionFlow) 28 else 34, TEXT, true))
         content.addView(label(getString(if (simpleConnectionFlow && settingsGroup != LynkSettingsGroup.DISPLAY) R.string.lynk_settings_copy else R.string.apply_reconnects_carplay_for_size_resolution_music_buffer), 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
         section(content, getString(R.string.carplay_controls), R.drawable.ic_dp_display) { card ->
@@ -1280,7 +1356,8 @@ class DiPlayActivity : ComponentActivity() {
         }
         val phone = card()
         phone.addView(label(getString(R.string.lynk_phone_step), 14, ACCENT, true))
-        phone.addView(label(getString(R.string.link_pair_hint), 17, TEXT).apply { setPadding(0, dp(16), 0, dp(12)) })
+        phone.addView(label(if (DiPlayPreferences.phoneAddress(this) == null) getString(R.string.link_pair_hint)
+            else getString(R.string.lynk_remembered_phone, DiPlayPreferences.phoneName(this)), 17, TEXT).apply { setPadding(0, dp(16), 0, dp(12)) })
         phone.addView(button(getString(R.string.bluetooth_settings), false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, matchButton(8, 60))
         phone.addView(button(getString(R.string.link_local_bt_title), false) { editHeadUnitBluetoothAddress() }, matchButton(12, 60))
         panels.addView(hotspot, if (wide) LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(18) } else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
@@ -2762,7 +2839,27 @@ class DiPlayActivity : ComponentActivity() {
         return true
     }
 
+    private fun startLynkConnection(wireless: Boolean) {
+        // Returning from home is different from applying settings, which must reconnect.
+        if (CarPlayBackgroundSession.hasSession() && AirPlayPersistence.loadWirelessEnabled(this) == wireless) {
+            pendingWireless = false
+            openProjection()
+        } else connect(wireless)
+    }
+
     private fun connect(wireless: Boolean) {
+        if (setupError != null) { toast(setupError!!); return }
+        if (simpleConnectionFlow) {
+            pendingWireless = false
+            if (CarPlayBackgroundSession.hasSession()) {
+                // A 2.4GHz session may own a Bluetooth-off lease. Finish its close barrier
+                // and restore the radio before examining bonds for the next attempt.
+                CarPlayBackgroundSession.stop { runOnUiThread {
+                    if (!isFinishing && !isDestroyed) connect(wireless)
+                } }
+                return
+            }
+        }
         SessionLogFile(File(filesDir, "logs/requests/diplay.log")).use { log ->
             log.file.parentFile?.mkdirs()
             log.append("Connection requested at=${java.time.Instant.now()} transport=${if (wireless) "wireless" else "usb"} localAuthReady=${setupError == null}")
@@ -2770,7 +2867,6 @@ class DiPlayActivity : ComponentActivity() {
 
         startupHotspotCancelled = true
         if (wireless && pendingCarHotspotSetup) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
-        if (setupError != null) { toast(setupError!!); return }
         if (recoverBluetoothIfNeeded { connect(wireless) }) return
         if (automaticHotspot) pendingCarHotspotSetup = false
         if (simpleConnectionFlow && wireless && !automaticHotspot &&
@@ -2795,16 +2891,8 @@ class DiPlayActivity : ComponentActivity() {
             return
         }
         if (simpleConnectionFlow && wireless) {
-            if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                pendingWireless = true; choosePhone(); return
-            }
-            val adapter = getSystemService(BluetoothManager::class.java)?.adapter
-            val selected = DiPlayPreferences.phoneAddress(this)
-            if (adapter == null || !adapter.isEnabled || adapter.bondedDevices.none { it.address == selected }) {
-                pendingWireless = true; choosePhone(); return
-            }
-        }
-        if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
+            if (!prepareLynkWireless()) return
+        } else if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
             pendingWireless = true; choosePhone(); return
         }
         val preferences = getSharedPreferences("diplay", MODE_PRIVATE)
@@ -2882,26 +2970,25 @@ class DiPlayActivity : ComponentActivity() {
                 .setPositiveButton(getString(R.string.open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
                 .setNegativeButton(getString(R.string.got_it), null).show(); return
         }
-        // Only auto-select an unambiguous iPhone, not an arbitrary paired accessory.
-        if (simpleConnectionFlow && pendingWireless) {
-            devices.filter { it.name?.contains("iPhone", ignoreCase = true) == true }.singleOrNull()?.let { device ->
-                DiPlayPreferences.savePhone(this, device.address, device.name ?: "iPhone")
-                pendingWireless = false
-                render(); connect(true); return
-            }
-        }
+        if (phonePickerShowing) return
+        phonePickerShowing = true
         AlertDialog.Builder(this).setTitle(getString(R.string.choose_your_iphone))
             .setItems(devices.map { device ->
                 val name = device.name ?: getString(R.string.paired_device)
                 if (devices.count { it.name == device.name } > 1) "$name · ${device.address.takeLast(5)}" else name
             }.toTypedArray()) { _, index ->
+                phonePickerShowing = false
                 val device = devices[index]
                 DiPlayPreferences.savePhone(this, device.address, device.name ?: "iPhone")
                 val start = pendingWireless; pendingWireless = false
                 render()
                 if (start) connect(true)
-            }.setNeutralButton(getString(R.string.pair_another)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-            .setNegativeButton(getString(R.string.cancel)) { _, _ -> pendingWireless = false }.show()
+            }.setNeutralButton(getString(R.string.pair_another)) { _, _ ->
+                if (simpleConnectionFlow && pendingWireless) wirelessBluetoothSettings.launch(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                else openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            }.setNegativeButton(getString(R.string.cancel)) { _, _ -> pendingWireless = false }
+            .setOnCancelListener { pendingWireless = false }
+            .setOnDismissListener { phonePickerShowing = false }.show()
     }
 
     private fun wirelessHelp() {
@@ -2973,6 +3060,11 @@ class DiPlayActivity : ComponentActivity() {
             DiPlayPreferences.phoneAddress(this) != null -> "${getString(R.string.status_ready_for_prefix)}${DiPlayPreferences.phoneName(this)}"
             else -> getString(R.string.ready_when_you_are)
         }
+        if (simpleConnectionFlow && page == "home" && !running && !bluetoothRecoveryInProgress && !bluetoothRecoveryError) {
+            status?.text = if (DiPlayPreferences.phoneAddress(this) != null)
+                getString(R.string.lynk_remembered_phone, DiPlayPreferences.phoneName(this)) else ""
+            status?.visibility = if (status?.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        } else status?.visibility = View.VISIBLE
         if (lastRunning != running) {
             connectButton?.text = if (simpleConnectionFlow) {
                 if (running) getString(R.string.link_progress) else getString(R.string.lynk_wireless)

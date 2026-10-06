@@ -22,7 +22,7 @@ class CarHotspotStatusTest {
 
     @Test fun invalidReflectionStateDoesNotTurnUnknownIntoHotspotOff() {
         assertNull(CarHotspotStatus.read({ -1 }, { null }, { sticky(99) }))
-        assertEquals(true, CarHotspotStatus.read({ 99 }, { null }, { sticky(13) }))
+        assertEquals(true, CarHotspotStatus.read({ 99 }, { null }, { sticky(13, 1) }))
     }
 
     @Test fun localOnlyOrUnspecifiedApBroadcastDoesNotClaimTheCarHotspotIsOnOrOff() {
@@ -32,12 +32,19 @@ class CarHotspotStatusTest {
         }
     }
 
+    @Test fun genericEnabledCannotIdentifyTethering() {
+        assertNull(CarHotspotStatus.readTethering({ 13 }, { true }, { sticky(13, 2) }))
+        assertNull(CarHotspotStatus.readTethering({ 13 }, { true }, { sticky(13) }))
+        assertNull(CarHotspotStatus.readTethering({ 13 }, { true }, { null }))
+        assertEquals(true, CarHotspotStatus.readTethering({ 13 }, { true }, { sticky(13, 1) }))
+    }
+
     @Test fun authoritativeReflectionStateWinsOverAnOlderStickyBroadcast() {
-        assertEquals(false, CarHotspotStatus.read({ 11 }, { null }, { fail("Do not read stale broadcast"); sticky(13) }))
+        assertEquals(false, CarHotspotStatus.read({ 11 }, { null }, { fail("Do not read stale broadcast"); sticky(13, 1) }))
     }
 
     @Test fun absentManagerStillAllowsStickyStateButAbsentExtraDoesNotInventOff() {
-        assertEquals(true, CarHotspotStatus.read({ null }, { null }, { sticky(13) }))
+        assertEquals(true, CarHotspotStatus.read({ null }, { null }, { sticky(13, 1) }))
         assertNull(CarHotspotStatus.read({ null }, { null }, { sticky(null) }))
         assertNull(CarHotspotStatus.read({ null }, { null }, { throw SecurityException() }))
     }

@@ -65,8 +65,31 @@ class TelephonyMicrophoneTest {
     }
 
     @After fun tearDown() {
-        sink.close()
+        sink.close(); assertTrue(sink.awaitClosed(2000))
         ShadowAudioRecord.clearSource()
+    }
+
+    private fun stopMicrophone(id: AudioStreamId) {
+        @Suppress("UNCHECKED_CAST")
+        val map = sink.javaClass.getDeclaredField("microphoneUplinks").apply { isAccessible = true }
+            .get(sink) as Map<AudioStreamId, MicrophoneUplink>
+        val uplink = map[id]
+        sink.onMicrophoneStopped(id)
+        uplink?.completion?.get(2, java.util.concurrent.TimeUnit.SECONDS)
+    }
+
+    @Test fun cancelledSuccessorCannotStartWhilePreviousCaptureIsReleasing() {
+        val previous = java.util.concurrent.CompletableFuture<Unit>()
+        @Suppress("UNCHECKED_CAST")
+        val tails = sink.javaClass.getDeclaredField("microphoneTails").apply { isAccessible = true }
+            .get(sink) as MutableMap<Pair<Int, String>, java.util.concurrent.CompletableFuture<Unit>>
+        tails[telephony.type to telephony.audioType] = previous
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        assertNull(recorder.get())
+        sink.onMicrophoneStopped(telephony)
+        previous.complete(Unit)
+        assertNull("Cancelled pending capture must not reopen the microphone", recorder.get())
+        assertEquals(AudioManager.MODE_NORMAL, manager.mode)
     }
 
     @Test fun telephonyEnablesEffectsOnItsRecorderAndRestoresThePreviousMode() {
@@ -84,7 +107,7 @@ class TelephonyMicrophoneTest {
             assertEquals(record.audioSessionId, Shadow.extract<ShadowAudioEffect>(it).audioSession)
         }
 
-        sink.onMicrophoneStopped(telephony)
+        stopMicrophone(telephony)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
         assertEquals(AudioRecord.STATE_UNINITIALIZED, record.state)
@@ -99,12 +122,12 @@ class TelephonyMicrophoneTest {
     }
 
     @Test fun microphoneMetadataAndFinalCountersReachTheAudioDiagnosticCallback() {
-        sink.close()
+        sink.close(); assertTrue(sink.awaitClosed(2000))
         val diagnostics = CopyOnWriteArrayList<String>()
         sink = AndroidMediaSink(context = context, onAudioDiagnostic = diagnostics::add)
         sink.onMicrophoneStarted(speechRecognition, config("speechrecognition"))
         awaitCapture()
-        sink.onMicrophoneStopped(speechRecognition)
+        stopMicrophone(speechRecognition)
         val microphone = diagnostics.filter { it.startsWith("Microphone:") }
         assertTrue(microphone.any { it.startsWith("Microphone: start type=speechrecognition source=VOICE_RECOGNITION codec=LPCM") })
         assertTrue(microphone.any { it.contains("Microphone: stats") && it.endsWith("ended=true") })
@@ -113,19 +136,19 @@ class TelephonyMicrophoneTest {
     }
 
     @Test fun diagnosticCallbackFailureDoesNotStopSpeechRecognitionCapture() {
-        sink.close()
+        sink.close(); assertTrue(sink.awaitClosed(2000))
         sink = AndroidMediaSink(context = context, onAudioDiagnostic = { throw IllegalStateException("diagnostic callback failed") })
         sink.onMicrophoneStarted(speechRecognition, config("speechrecognition"))
         val record = awaitCapture()
         assertEquals(AudioRecord.RECORDSTATE_RECORDING, record.recordingState)
         assertEquals(MediaRecorder.AudioSource.VOICE_RECOGNITION, record.audioSource)
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
-        sink.onMicrophoneStopped(speechRecognition)
+        stopMicrophone(speechRecognition)
         assertEquals(AudioRecord.STATE_UNINITIALIZED, record.state)
     }
 
     @Test fun diagnosticCallbackFailureDoesNotStopCallCaptureOrChangeModeRestoration() {
-        sink.close()
+        sink.close(); assertTrue(sink.awaitClosed(2000))
         sink = AndroidMediaSink(context = context, onAudioDiagnostic = { throw IllegalStateException("diagnostic callback failed") })
         manager.mode = AudioManager.MODE_RINGTONE
         sink.onMicrophoneStarted(telephony, config("telephony"))
@@ -134,7 +157,7 @@ class TelephonyMicrophoneTest {
         assertEquals(MediaRecorder.AudioSource.VOICE_COMMUNICATION, record.audioSource)
         assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
         assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
-        sink.onMicrophoneStopped(telephony)
+        stopMicrophone(telephony)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
     }
@@ -142,17 +165,17 @@ class TelephonyMicrophoneTest {
     @Test fun stoppingAnotherStreamDoesNotRestoreTheCallMode() {
         sink.onMicrophoneStarted(telephony, config("telephony"))
         awaitCapture()
-        sink.onMicrophoneStopped(speechRecognition)
+        stopMicrophone(speechRecognition)
         assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
         assertEquals(microphoneLog(), 2, ShadowAudioEffect.getAudioEffects().size)
-        sink.onMicrophoneStopped(telephony)
+        stopMicrophone(telephony)
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
     }
 
     @Test fun closingTheSinkReleasesEffectsAndRestoresMode() {
         sink.onMicrophoneStarted(telephony, config("telephony"))
         awaitCapture()
-        sink.close()
+        sink.close(); assertTrue(sink.awaitClosed(2000))
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
         assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
     }
@@ -163,7 +186,7 @@ class TelephonyMicrophoneTest {
         awaitCapture()
         sink.onMicrophoneStarted(telephony, config("telephony"))
         assertEquals(microphoneLog(), 2, ShadowAudioEffect.getAudioEffects().size)
-        sink.onMicrophoneStopped(telephony)
+        stopMicrophone(telephony)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
     }
 

@@ -23,4 +23,19 @@
     <string name="lynk_phone_step">02 / 配对 iPhone</string>
     <string name="lynk_progress_label">CARPLAY 连接</string>
     <string name="lynk_settings_copy">按类别调整，保留你习惯的设置。</string>
+    <string name="lynk_wireless_caption">自动热点 · 首次配对一次</string>
+    <string name="lynk_wired_caption">插入数据线即可连接</string>
+    <string name="lynk_pair_once">首次连接，配对一次</string>
+    <string name="lynk_enable_bluetooth_hint">开启车机蓝牙后继续，已记住的手机和配对不会清除。</string>
+    <string name="lynk_saved_phone_missing">车机当前配对列表中未找到已记住的手机。请检查蓝牙设置；如果已经配对，可直接选择，无需重新配对。</string>
+    <string name="lynk_first_pair_hint">1. 在 iPhone 上开启蓝牙和 Wi-Fi。\n2. 打开车机蓝牙设置，首次配对这台 iPhone。\n3. 返回本页后自动继续；手机弹窗时允许使用 CarPlay。</string>
+    <string name="lynk_choose_paired">已配对，选择 iPhone</string>
+    <string name="lynk_continue">继续连接</string>
+    <string name="lynk_wireless_next">配对就绪后，App 会自动创建临时热点并发送给 iPhone，无需填写热点名称和密码。</string>
+    <string name="lynk_remembered_phone">已记住 %1$s · 下次复用配对</string>
+    <string name="lynk_phone_guide">手机连接教程</string>
+    <string name="lynk_paired_guide">保持 iPhone 蓝牙和 Wi-Fi 开启，App 会复用已选手机及配对。手机出现提示时允许 CarPlay；已授权的手机可能不会再次弹窗。</string>
+    <string name="lynk_usb_quick_hint">将 iPhone 插入车机 USB 数据口并解锁，出现提示时允许 USB 访问和“信任 / CarPlay”。已保存的信任会复用。</string>
+    <string name="lynk_manual_caption">使用已保存的热点</string>
+    <string name="lynk_pick_once">从已配对设备中选择一次 iPhone，App 会记住，下次直接连接，无需重新配对。</string>
 </resources>

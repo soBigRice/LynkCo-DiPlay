@@ -46,8 +46,11 @@ class AudioCodecLifecycleTest {
         val renderer = sink.javaClass.getDeclaredMethod("audioRenderer", AudioStreamId::class.java, AudioFormat::class.java)
             .apply { isAccessible = true }.invoke(sink, AudioStreamId(100, "media"), format)
         try {
-            renderer.javaClass.getDeclaredMethod("configureCodec", String::class.java)
-                .apply { isAccessible = true }.invoke(renderer, MediaFormat.MIMETYPE_AUDIO_AAC)
+            val error = assertThrows(java.lang.reflect.InvocationTargetException::class.java) {
+                renderer.javaClass.getDeclaredMethod("configureCodec", String::class.java)
+                    .apply { isAccessible = true }.invoke(renderer, MediaFormat.MIMETYPE_AUDIO_AAC)
+            }
+            assertTrue(error.cause is IllegalArgumentException || error.cause is IllegalStateException)
             assertEquals("Fault injection must reach configure", 1, FailingCodec.configured)
             assertEquals("Rejected codec must be released before the next attempt", 1, FailingCodec.released)
         } finally {
