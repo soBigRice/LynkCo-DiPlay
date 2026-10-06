@@ -49,3 +49,5 @@
 - `AndroidMediaSink` / `MediaResourceScope`：包括退役 worker 的关闭屏障、同类输出串行移交、AudioTrack 单次失效恢复；`AudioOutputLifecycleTest` / `VideoOutputLifecycleTest` 注入 native 写入/释放延迟。
 - `LocalHotspotRequestBroker`：进程 pending/reservation ticket；`CarHotspotStatus.readTethering` 区分共享与本地热点；`WirelessTunnelOwner` 固定认证上下文和发布代号。上述入口的失败限制见 test17 文档。
 - `HeadUnitProfile`：明确 Lynk 平台资源选取音频/蓝牙行为，不再复用 UI 或热点开关。
+
+- `mobile/src/lynkDebug/res/raw/ic_car_home.png`：test18 领克返回车机图标，覆盖 common 默认 BYD；Host → AirPlayConfig → `/info` 的 `oemIcons.imageData`，自定义图标/名称优先级不变。素材来源与验证见适配文档 test18。

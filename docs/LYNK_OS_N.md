@@ -1282,3 +1282,37 @@ API28 模拟器重新安装 test16 作为比较基线，再覆盖安装 test17�
 稳定性未获得新的专项反馈。此前“有线/流畅度尚待验证”的说明是交付当时的历史状态。
 提交包括 test15～test17 的连接界面、媒体/平台适配、回归测试和说明；不包含 APK、认证输入、
 私人诊断或生成缓存，不推送。保留 test17 包作为后续品牌图标修改的已验收比较基线。
+
+
+## test18：CarPlay 返回车机图标（2026-10-06）
+
+用户在确认 test17 有线正常后要求将 CarPlay 内的 BYD 标识改为领克。
+仅新增 `mobile/src/lynkDebug/res/raw/ic_car_home.png` 同名资源覆盖，版本升为 test18 / code36；
+不修改已验收的运行源码、认证、包名/签名、身份、配对、媒体参数和持久化格式。
+`CarPlayHostActivity.loadAirPlayIcon` → `AirPlayConfig.icons` → `/info` →
+`AirPlayInfoPlist.oemIcons.imageData` 继续使用原链路；默认 `oemIconLabel` 已为 `LYNK & CO`。
+用户已保存的自定义图片和名称仍优先，普通 DiPlay target 保留上游默认图。
+
+素材来自 [Lynk & Co 官方新闻室 Logos](https://press.lynkco.com/es-ES/assets/228434/)
+的 [黑色原图](https://d21buns5ku92am.cloudfront.net/69364/images/398393-Lynk%20%26%20Co-logo-black-6bd77b-original-1628174238.png)，
+核查于 2026-10-06。品牌标识归 Lynk & Co 所有，仅用来标明返回领克车机入口，
+不表示领克官方产品或授权；保留 App 中基于 DiPlay 修改的署名。
+从原 PNG 837×210 等比缩放到 168×42，居中置于 192×192 白色画布，没有拉伸或裁掉字形。
+转换命令：`magick original.png -resize 168x168 -background white -alpha remove -alpha off -gravity center -extent 192x192 PNG24:ic_car_home.png`。
+
+新图在下一次完整建立 CarPlay 会话时发送；当前后台会话保留其不可变配置。
+不主动删除 iPhone 配对/缓存。手机端是否立即刷新图标需实车观察，不能以 Android 的设置预览
+代替验证，因为未选择自定义图片时该预览仍是上游 placeholder。
+
+test17 的全部代码已本地提交为 `6ed8b4c`。test18 验证：现有 `AirPlayInfoPlistTest` 8 项与
+`LynkOsNProfileTest` 3 项通过；独立包构建成功。直接从 APK 提取 `res/raw/ic_car_home.png`，
+字节与新资源完全相同，192×192 PNG 解码/实图查看正常；旧包仍含 BYD 原图。
+713 份既有源码/资源 hash 与已验收 test17 完全一致，只有新增图标、版本号及说明改变。
+签名、包名、minSdk28 和两份认证输入/13 个 native 库与 test17 一致。
+
+`dist/DiPlay-Lynk-OSN2-test18.apk` 为 47,571,517 bytes，SHA-256
+`a08cc72c07f8ce6adde0ced51e766d3fff516c714f0f1e2e927588d3fafff363`。
+本轮不改运行逻辑，因此复用 test17 的完整回归和用户有线验收；未重新启动车辆或模拟器。
+尚未观察 iPhone 实际呈现新图，不能将包内图片检查扩张为手机端验收。
+验证证据位于 `.private/verification/test18/`；构建进程与项目生成缓存清理，保留 test17/test18
+安装包和必要证据。图标改动纳入用户本次“提交全部代码”的本地提交范围，不推送。
