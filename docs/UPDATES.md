@@ -10,6 +10,11 @@
 - 官网首页、安装步骤和兼容说明统一声明：有线可用，请用数据线连接车机 USB-A 口；车上
   USB-C 口仅用于充电。无线目前不能正常使用，仍在调试、测试与修复中。此声明来自用户
   2026-10-06 对目标车机的反馈，替代之前“无线仍待实车验证”的表述；不推断其他车型接口能力。
+- 官网在下载按钮之前显示高对比度风险摘要，导航、摘要和页脚均可跳转到 `#disclaimer`。
+  完整中英文声明来自 `site/content.json`，覆盖驾驶分心、媒体/连接故障、兼容与实验认证、
+  安装来源/数据、诊断隐私及第三方权利；已确认的 USB-A/USB-C 和无线状态提示继续保留。
+  无担保/责任限制沿用 AGPL §15–17 的适用法律边界，不声称排除依法不得免除的责任，
+  也不添加与开源许可冲突的“禁止商用”限制或保证不影响车机保修。
 - `.github/workflows/pages.yml` 在 `main` 的网站内容改变或手动触发时构建并部署 `site/`。
   APK、认证素材、本地配置和构建输出不属于 Pages 发布目录，也不进入 Git。
 - 官网和 App 共用 `site/updates/latest.json`。当前 `release: null`，网站提供源码 ZIP
@@ -71,6 +76,9 @@
 
 来源（2026-10-06 核对）：[GitHub Pages 工作流](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)、
 [Android 网站分发](https://developer.android.com/distribute/marketing-tools/alternative-distribution)。
+风险声明依据（2026-10-06）：[AGPL §15–17](https://www.gnu.org/licenses/agpl.en.html)、
+[Android 非商店来源安装风险](https://support.google.com/android/answer/9457058?hl=en)，
+以及本项目的 [隐私与诊断](PRIVACY.md)、[第三方声明](THIRD_PARTY_NOTICES.md)。
 
 本轮自动验证：仅本次改动与 `e8f4caa` 基线组成的隔离源码中，16 项更新/设置回归通过，
 `lintLynkDebug`、`lintDebug`、`assembleLynkDebug` 通过；构建包不含认证素材，仅用于源码验证，
