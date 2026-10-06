@@ -15,6 +15,10 @@
   安装来源/数据、诊断隐私及第三方权利；已确认的 USB-A/USB-C 和无线状态提示继续保留。
   无担保/责任限制沿用 AGPL §15–17 的适用法律边界，不声称排除依法不得免除的责任，
   也不添加与开源许可冲突的“禁止商用”限制或保证不影响车机保修。
+- 2026-10-06 按用户补充，明确“仅为实验项目”“下载安装需谨慎”，并在首页风险框、下载区
+  和完整声明显示下载安装/使用表示已阅读、理解并同意声明的提示。作者及贡献者对车机损坏、
+  系统异常、数据丢失等损失的免责仅限法律允许范围；依法不得免除的责任继续保留。
+  不将网页提示当作免责必然生效的证据，也不改变开源许可证授予的权利。
 - `.github/workflows/pages.yml` 在 `main` 的网站内容改变或手动触发时构建并部署 `site/`。
   APK、认证素材、本地配置和构建输出不属于 Pages 发布目录，也不进入 Git。
 - 官网和 App 共用 `site/updates/latest.json`。当前 `release: null`，网站提供源码 ZIP
@@ -79,6 +83,8 @@
 风险声明依据（2026-10-06）：[AGPL §15–17](https://www.gnu.org/licenses/agpl.en.html)、
 [Android 非商店来源安装风险](https://support.google.com/android/answer/9457058?hl=en)，
 以及本项目的 [隐私与诊断](PRIVACY.md)、[第三方声明](THIRD_PARTY_NOTICES.md)。
+下载声明的提示与责任限制核对：[《民法典》§496–497、§506](https://www.court.gov.cn/zixun/xiangqing/233181.html)
+（2026-10-06，最高人民法院公布文本）。
 
 本轮自动验证：仅本次改动与 `e8f4caa` 基线组成的隔离源码中，16 项更新/设置回归通过，
 `lintLynkDebug`、`lintDebug`、`assembleLynkDebug` 通过；构建包不含认证素材，仅用于源码验证，
