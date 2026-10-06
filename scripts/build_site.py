@@ -60,6 +60,7 @@ def build():
 <header><a class="brand" href="{prefix}"><strong>LynkCo <span>CarPlay</span></strong><small>{e(d['tag'])}</small></a>
 <nav aria-label="{e(d['navigation'])}"><a href="#download">{e(d['downloads'])}</a><a href="#install">{e(d['install'])}</a><a href="{REPO}">GitHub</a><a href="{prefix}{'en/' if lang == 'zh-Hans' else ''}" lang="{'en' if lang == 'zh-Hans' else 'zh-Hans'}">{'English' if lang == 'zh-Hans' else '中文'}</a></nav></header>
 <section class="hero"><h1>{e(d['title']).replace(chr(10), '<br>')}</h1><p class="intro">{e(d['intro'])}</p>
+<aside class="connection-notice" aria-labelledby="connection-status"><strong id="connection-status">{e(d['connectionTitle'])}</strong><p>{e(d['wiredNotice'])}</p><p>{e(d['wirelessNotice'])}</p></aside>
 <div class="actions"><a class="button" href="{primary}">{e(primary_text)} <span aria-hidden="true">↓</span></a><a class="button secondary" href="#install">{e(d['install'])}</a></div><p class="note">{e(d['scope'])}</p></section>
 <figure class="product"><a href="{prefix}assets/home.png"><img src="{prefix}assets/home.png" width="2560" height="1600" alt="{e(d['screenshotAlt'])}" fetchpriority="high"></a><figcaption>{e(d['caption'])}</figcaption></figure>
 <section class="download-section" id="download"><div><h2>{e(d['downloads'])}</h2><p class="version">{e(release_text)}</p><p>{e(notes).replace(chr(10), '<br>')}</p></div><div class="download-actions"><a class="button" href="{primary}">{e(primary_text)} <span aria-hidden="true">↓</span></a><a href="{REPO}/releases">{e(d['releasePage'])} ↗</a></div></section>

@@ -7,6 +7,9 @@
 
 - `scripts/build_site.py` 从 `site/content.json` 生成中文首页、英文 `/en/`，旧语言路径转到
   相应入口。沿用 Python 静态生成和 GitHub Pages，不增加框架或运行服务。
+- 官网首页、安装步骤和兼容说明统一声明：有线可用，请用数据线连接车机 USB-A 口；车上
+  USB-C 口仅用于充电。无线目前不能正常使用，仍在调试、测试与修复中。此声明来自用户
+  2026-10-06 对目标车机的反馈，替代之前“无线仍待实车验证”的表述；不推断其他车型接口能力。
 - `.github/workflows/pages.yml` 在 `main` 的网站内容改变或手动触发时构建并部署 `site/`。
   APK、认证素材、本地配置和构建输出不属于 Pages 发布目录，也不进入 Git。
 - 官网和 App 共用 `site/updates/latest.json`。当前 `release: null`，网站提供源码 ZIP
