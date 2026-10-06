@@ -2,6 +2,7 @@
 
 核对日期：2026-10-06。官网为 <https://soBigRice.github.io/LynkCo-DiPlay/>，仓库为
 <https://github.com/soBigRice/LynkCo-DiPlay>。用户决定先公开官网与源码，完整 APK 暂不发布。
+中英文官网的“开源与致谢”和页脚均提供 [喵总官网](https://miaozong.cc/) 链接。
 
 ## 当前行为与边界
 

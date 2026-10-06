@@ -36,6 +36,7 @@
     "compatibilityText": "目标为 2023 款领克 03，OS N 2.0 / Android 9。用户已确认 test17 有线连接可用、流畅度尚可。有线请连接车机 USB-A 口，车上的 USB-C 口仅用于充电。无线目前不能正常使用，仍在调试、测试与修复中。其他车型、固件与 iOS 版本需独立验证。",
     "feedbackTitle": "遇到连接问题？", "feedbackText": "在设置中导出诊断报告，附上车机型号、系统版本、App 版本与复现步骤。提交前检查并删除个人信息。", "feedback": "反馈问题",
     "creditsTitle": "开源与致谢", "credits": "本项目基于 DiPlay 修改，保留原作者与贡献者署名，采用 AGPL-3.0 许可证。上游项目与第三方许可：", "notices": "第三方声明", "source": "源码仓库", "privacy": "隐私说明",
+    "authorWebsite": "喵总官网",
     "footer": "LynkCo CarPlay · 独立社区项目。车辆停稳后再进行安装与设置。"
   },
   "en": {
@@ -72,6 +73,7 @@
     "compatibility": "Compatibility and validation", "compatibilityText": "Target: 2023 Lynk 03, OS N 2.0 / Android 9. The user confirmed working USB connectivity and acceptable smoothness with test17. Use the head unit's USB-A port for data; the car's USB-C port is for charging only. Wireless currently does not work properly and is still being debugged, tested and repaired. Other cars, firmware and iOS versions require separate testing.",
     "feedbackTitle": "Connection issue?", "feedbackText": "Export a diagnostic report in Settings and include the head unit, OS, app version and reproduction steps. Review and remove personal information before posting.", "feedback": "Report an issue",
     "creditsTitle": "Open source, with thanks", "credits": "Modified from DiPlay, retaining the original author and contributor credits, under AGPL-3.0. Upstream project and third-party licenses:", "notices": "Third-party notices", "source": "Source repository", "privacy": "Privacy",
+    "authorWebsite": "Boss Meow's website",
     "footer": "LynkCo CarPlay · Independent community project. Install and configure only while parked."
   }
 }

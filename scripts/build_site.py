@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / 'site'
 BASE = 'https://soBigRice.github.io/LynkCo-DiPlay/'
 REPO = 'https://github.com/soBigRice/LynkCo-DiPlay'
+AUTHOR_WEBSITE = 'https://miaozong.cc/'
 PACKAGE = 'com.shihab.diplay.lynk'
 SOURCE = REPO + '/archive/refs/heads/main.zip'
 
@@ -69,8 +70,8 @@ def build():
 <div class="grid"><section class="card" id="install"><h2>{e(d['setup'])}</h2><ol>{''.join('<li>' + e(step) + '</li>' for step in d['steps'])}</ol><p class="note">{e(d['updateHint'])}</p><a href="{REPO}/blob/main/docs/LYNK_OS_N.md">{e(d['guide'])} ↗</a></section>
 <section class="card"><h2>{e(d['featuresTitle'])}</h2><ul>{''.join('<li>' + e(item) + '</li>' for item in d['features'])}</ul><h3>{e(d['compatibility'])}</h3><p>{e(d['compatibilityText'])}</p></section></div>
 <section class="support"><div><h2>{e(d['feedbackTitle'])}</h2><p>{e(d['feedbackText'])}</p></div><a class="button secondary" href="{REPO}/issues/new/choose">{e(d['feedback'])} ↗</a></section>
-<section class="credits"><h2>{e(d['creditsTitle'])}</h2><p>{e(d['credits'])} <a href="https://github.com/shihabal3amri/DiPlay">DiPlay</a> · <a href="{REPO}/blob/main/docs/THIRD_PARTY_NOTICES.md">{e(d['notices'])}</a></p></section>
-<footer><nav><a href="{REPO}">{e(d['source'])}</a><a href="{REPO}/blob/main/LICENSE">AGPL-3.0</a><a href="#disclaimer">{e(d['disclaimerTitle'])}</a><a href="{REPO}/blob/main/docs/PRIVACY.md">{e(d['privacy'])}</a><a href="{REPO}/releases">{e(d['releasePage'])}</a></nav><p>{e(d['footer'])}</p></footer>
+<section class="credits"><h2>{e(d['creditsTitle'])}</h2><p>{e(d['credits'])} <a href="https://github.com/shihabal3amri/DiPlay">DiPlay</a> · <a href="{REPO}/blob/main/docs/THIRD_PARTY_NOTICES.md">{e(d['notices'])}</a></p><p><a href="{AUTHOR_WEBSITE}">{e(d['authorWebsite'])} ↗</a></p></section>
+<footer><nav><a href="{AUTHOR_WEBSITE}">{e(d['authorWebsite'])}</a><a href="{REPO}">{e(d['source'])}</a><a href="{REPO}/blob/main/LICENSE">AGPL-3.0</a><a href="#disclaimer">{e(d['disclaimerTitle'])}</a><a href="{REPO}/blob/main/docs/PRIVACY.md">{e(d['privacy'])}</a><a href="{REPO}/releases">{e(d['releasePage'])}</a></nav><p>{e(d['footer'])}</p></footer>
 </main></body></html>''')
     # Preserve old inbound language URLs without advertising upstream APKs as Lynk builds.
     for lang in ['ar', 'es', 'ru', 'uk', 'zh-Hans']:
