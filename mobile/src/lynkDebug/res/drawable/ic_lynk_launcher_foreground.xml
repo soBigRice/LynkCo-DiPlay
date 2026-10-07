@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A square intrinsic size avoids Android 9 launcher clipping. Percentage insets scale with
+     the final bounds: the 168/192-wide wordmark occupies 64.26 of the 108 dp adaptive canvas. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="16%" android:insetTop="16%"
+    android:insetRight="16%" android:insetBottom="16%">
+    <bitmap android:src="@raw/ic_car_home" android:gravity="fill" />
+</inset>

@@ -23,6 +23,9 @@ internal object ConnectionDiagnosticReport {
         appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
         appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
+        appendLine("Diagnostic limits: audio context <=12 samples/session, >=2000ms apart; capture timestamps may follow the triggering event.")
+        appendLine("Observability: other-app focus owner and iPhone lock state are not exposed; unknown does not mean normal.")
+        appendLine("Audio device empty capability arrays mean arbitrary supported values; playback list is platform-filtered.")
         appendLine()
         if (BydOutputSettings.integrationAllowed(appContext)) {
             appendLine("--- Current cluster display diagnostics (even when disabled) ---")

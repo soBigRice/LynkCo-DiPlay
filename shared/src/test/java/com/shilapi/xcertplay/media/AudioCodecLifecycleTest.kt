@@ -22,6 +22,8 @@ import org.robolectric.shadows.ShadowMediaCodec
 class AudioCodecLifecycleTest {
     @Before fun reset() {
         FailingCodec.failAtStart = false
+        FailingCodec.failRelease = false
+        FailingCodec.releaseEntered = java.util.concurrent.CountDownLatch(1)
         FailingCodec.configured = 0
         FailingCodec.released = 0
     }
@@ -38,6 +40,39 @@ class AudioCodecLifecycleTest {
     @Test fun failedOpusEncoderStartReleasesTheCreatedCodec() {
         FailingCodec.failAtStart = true
         encoderFailure()
+    }
+
+    @Test fun failedConfigurationAndFailedReleaseDoNotReportSuccessfulShutdown() = doubleFailure(false)
+
+    @Test fun failedStartAndFailedReleaseDoNotReportSuccessfulShutdown() = doubleFailure(true)
+
+    @Test fun rejectedCodecWithSuccessfulReleaseAllowsTheNextAudioOutput() {
+        val ready = java.util.concurrent.CountDownLatch(1)
+        val sink = AndroidMediaSink(onAudioDiagnostic = {
+            if (it.startsWith("Audio: ready")) ready.countDown()
+        })
+        try {
+            sink.onAudioStarted(AudioStreamId(100, "media"), AudioFormat(AudioCodecKind.AAC_LC, 48000, 2, 100, "media"), 0)
+            assertTrue(FailingCodec.releaseEntered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            sink.onAudioStarted(AudioStreamId(100, "media", com.shilapi.xcertplay.airplay.MediaStreamOwner(1, 2)),
+                AudioFormat(AudioCodecKind.LPCM, 48000, 2, 100, "media"), 0)
+            assertTrue(ready.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        } finally { sink.close(); assertTrue(sink.awaitClosed(2000)) }
+    }
+
+    private fun doubleFailure(atStart: Boolean) {
+        FailingCodec.failAtStart = atStart
+        FailingCodec.failRelease = true
+        val sink = AndroidMediaSink()
+        try {
+            sink.onAudioStarted(AudioStreamId(100, "media"), AudioFormat(AudioCodecKind.AAC_LC, 48000, 2, 100, "media"), 0)
+            assertTrue(FailingCodec.releaseEntered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        } finally {
+            sink.close()
+            val failure = assertThrows(java.util.concurrent.ExecutionException::class.java) { sink.awaitClosed(2000) }
+            assertEquals("Synthetic codec release failure", failure.cause?.message)
+        }
+        assertEquals("Failed candidate is not released twice", 1, FailingCodec.released)
     }
 
     private fun decoderFailure() {
@@ -79,10 +114,16 @@ class AudioCodecLifecycleTest {
         fun start() { throw IllegalStateException("Synthetic codec start failure") }
 
         @Implementation
-        fun release() { released++ }
+        fun release() {
+            released++
+            releaseEntered.countDown()
+            if (failRelease) throw IllegalStateException("Synthetic codec release failure")
+        }
 
         companion object {
             var failAtStart = false
+            var failRelease = false
+            lateinit var releaseEntered: java.util.concurrent.CountDownLatch
             var configured = 0
             var released = 0
         }

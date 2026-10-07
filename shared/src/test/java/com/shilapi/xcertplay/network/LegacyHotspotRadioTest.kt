@@ -4,6 +4,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LegacyHotspotRadioTest {
+    @Test fun onlySuccessfulMasterModeConfirmsAnAccessPoint() {
+        assertTrue(LegacyHotspotRadio.decodeMode(intArrayOf(0, 3)).isAccessPoint)
+        for (mode in listOf(0, 1, 2, 4, 5, 6, 7)) {
+            val reading = LegacyHotspotRadio.decodeMode(intArrayOf(0, mode))
+            assertFalse(reading.isAccessPoint)
+            assertNull(reading.error)
+        }
+    }
+    @Test fun unavailableAndMalformedModeReadingsNeverConfirmAnAccessPoint() {
+        for (raw in listOf(intArrayOf(), intArrayOf(0), intArrayOf(0, 3, 1),
+            intArrayOf(1, 3), intArrayOf(95, 3), intArrayOf(0, -1), intArrayOf(0, 8))) {
+            val reading = LegacyHotspotRadio.decodeMode(raw)
+            assertFalse(reading.isAccessPoint)
+            assertNull(reading.mode)
+            assertNotNull(reading.error)
+        }
+        assertFalse(LegacyHotspotRadio.readMode("../wlan0").isAccessPoint)
+        assertFalse(LegacyHotspotRadio.readMode("p2p0").isAccessPoint)
+    }
     @Test fun decodesDriverFrequencyWithoutUsingStationChannel() {
         assertEquals(5745, LegacyHotspotRadio.decodeFrequency(574500000, 1, null))
         assertEquals(5180, LegacyHotspotRadio.decodeFrequency(518, 7, null))

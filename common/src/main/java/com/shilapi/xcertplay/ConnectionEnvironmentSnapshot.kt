@@ -28,7 +28,9 @@ internal object ConnectionEnvironmentSnapshot {
                 if (Build.VERSION.SDK_INT >= 31) Manifest.permission.BLUETOOTH_CONNECT else Manifest.permission.BLUETOOTH)
                 .joinToString(" ") { "${it.substringAfterLast('.')}=${context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED}" }
         }
-        section("Audio output") { com.shilapi.xcertplay.media.AudioOutputDiagnostics.snapshot(context) }
+        section("Audio output") { com.shilapi.xcertplay.media.AudioOutputDiagnostics.inventory(context).joinToString("\n") }
+        section("Media runtime") { CarPlayBackgroundSession.snapshot()?.sink?.diagnosticState() ?: "stopped" }
+        section("Head-unit media") { HeadUnitMediaDiagnostics.capture(context) }
         section("Hardware") {
             val info = android.app.ActivityManager.MemoryInfo()
             context.getSystemService(android.app.ActivityManager::class.java)?.getMemoryInfo(info)
@@ -40,7 +42,9 @@ internal object ConnectionEnvironmentSnapshot {
             val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
             val selected = DiPlayPreferences.phoneAddress(context)
             "present=${adapter != null} state=${adapter?.state} bondedCount=${adapter?.bondedDevices?.size} " +
-                "phoneSelected=${selected != null} selectedBonded=${adapter?.bondedDevices?.any { it.address == selected }}"
+                "phoneSelected=${selected != null} selectedBonded=${adapter?.bondedDevices?.any { it.address == selected }} " +
+                "a2dpSource=${adapter?.getProfileConnectionState(2)} a2dpSink=${adapter?.getProfileConnectionState(11)} " +
+                "headset=${adapter?.getProfileConnectionState(1)} handsFreeClient=${adapter?.getProfileConnectionState(16)}"
         }
         section("Hotspot settings") {
             "mode=${AirPlayPersistence.loadWirelessHotspotMode(context)} " +
@@ -83,13 +87,19 @@ internal object ConnectionEnvironmentSnapshot {
             buildString {
                 appendLine("attachedCount=${devices.size} appleCount=${devices.count { it.vendorId == 0x05ac }}")
                 devices.filter { it.vendorId == 0x05ac }.forEach { device ->
-                    appendLine("vid=${device.vendorId} pid=${device.productId} access=${manager.hasPermission(device)} configurations=${device.configurationCount}")
+                    appendLine("vid=${device.vendorId} pid=${device.productId} access=${manager.hasPermission(device)} configurations=${device.configurationCount} " +
+                        "class=${device.deviceClass} subclass=${device.deviceSubclass} protocol=${device.deviceProtocol}")
                     for (c in 0 until device.configurationCount) {
                         val config = device.getConfiguration(c)
                         appendLine("configuration=${config.id} interfaces=${config.interfaceCount}")
                         for (i in 0 until config.interfaceCount) {
                             val iface = config.getInterface(i)
                             appendLine("interface=${iface.id} alternate=${iface.alternateSetting} class=${iface.interfaceClass} subclass=${iface.interfaceSubclass} protocol=${iface.interfaceProtocol} endpoints=${iface.endpointCount}")
+                            for (j in 0 until iface.endpointCount) {
+                                val endpoint = iface.getEndpoint(j)
+                                appendLine("endpoint=${endpoint.endpointNumber} direction=${endpoint.direction} type=${endpoint.type} " +
+                                    "maxPacketBytes=${endpoint.maxPacketSize} interval=${endpoint.interval}")
+                            }
                         }
                     }
                 }

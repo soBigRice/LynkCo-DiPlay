@@ -14,8 +14,12 @@ object HotspotDiagnostics {
             report("hotspot capabilities wifiState=${wifi?.wifiState} fiveGHz=${wifi?.is5GHzBandSupported}")
             ManualHotspotInterfaces(context, report).use { reader ->
                 val snapshot = reader.sample()
-                report("hotspot topology point=$point ap=${snapshot.apInterfaces} default=${snapshot.defaultInterface} " +
+                report("hotspot topology point=$point ap=${snapshot.apInterfaces} driverAp=${snapshot.driverApInterfaces} default=${snapshot.defaultInterface} " +
                     "upstreams=${snapshot.upstreamInterfaces} consistent=${snapshot.consistent}")
+                snapshot.driverApInterfaces.take(4).forEach { name ->
+                    val radio = LegacyHotspotRadio.read(name, null)
+                    report("hotspot radio iface=$name frequencyMHz=${radio.frequencyMHz} error=${radio.error}")
+                }
                 snapshot.interfaces.forEach { iface ->
                     report("hotspot topology iface=${iface.name} up=${iface.up} wireless=${iface.wireless} " +
                         "ipv4Private=${iface.addresses.count { it is Inet4Address && it.isSiteLocalAddress }} " +

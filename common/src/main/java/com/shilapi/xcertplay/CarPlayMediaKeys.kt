@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.content.Intent
+import android.app.PendingIntent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioAttributes
@@ -59,6 +60,60 @@ internal object CarPlayMediaKeys {
     private var artwork: Bitmap? = null
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
     private var placeholder: Bitmap? = null
+    private var notificationObserver: Pair<Any, () -> Unit>? = null
+    private var lastPublishedPlaying: Boolean? = null
+    private var keySamples = 0
+    private var commands = 0
+    private var activeCallback: CarPlayMediaCallback? = null
+
+    data class NotificationState(val token: MediaSession.Token, val playing: Boolean,
+        val title: String?, val artist: String?)
+
+    @Synchronized fun notificationState(): NotificationState? = session?.takeIf { it.isActive }?.let {
+        NotificationState(it.sessionToken, isPlayingLocked(), nowPlaying.title, nowPlaying.artist)
+    }
+
+    @Synchronized fun observeNotification(owner: Any, changed: () -> Unit) {
+        notificationObserver = owner to changed
+    }
+
+    @Synchronized fun removeNotificationObserver(owner: Any) {
+        if (notificationObserver?.first === owner) notificationObserver = null
+    }
+
+    private fun notifyChangedLocked() { notificationObserver?.second?.let { runCatching(it) } }
+
+    @Synchronized fun diagnosticState(): String =
+        "attached=${controller != null} sessionPresent=${session != null} active=${session?.isActive} " +
+            "mediaAudioActive=$mediaAudioActive playing=${isPlayingLocked()} actions=$ACTIONS " +
+            "titlePresent=${nowPlaying.title != null} artistPresent=${nowPlaying.artist != null} " +
+            "artworkPresent=${artwork != null} rendererOwnsFocus=${resumeFocus != null} commands=$commands " +
+            "otherSessions=not_requested"
+
+    /** Only the visible CarPlay activity uses this path; background selection stays with Android. */
+    @Synchronized fun dispatchForegroundKey(event: KeyEvent): Boolean {
+        if (controller == null || session?.isActive != true ||
+            CarPlayMediaButton.forKeyCode(event.keyCode, bydHardwareToggle = false) == null) return false
+        return activeCallback?.onForegroundKey(event) == true
+    }
+
+    @Synchronized fun observeForegroundKey(event: KeyEvent) {
+        observeKey(event, "activity")
+    }
+
+    private fun observeKey(event: KeyEvent, path: String) {
+        if (!HeadUnitMediaDiagnostics.isControlKey(event.keyCode) || keySamples >= 48) return
+        keySamples++
+        controller?.recordMediaControlDiagnostic("input path=$path code=${event.keyCode} scan=${event.scanCode} " +
+            "action=${event.action} repeat=${event.repeatCount} device=${event.deviceId} source=${event.source}")
+    }
+
+    @Synchronized fun dispatchNotification(index: Int): Boolean {
+        if (session?.isActive != true || index !in listOf(CarPlayMediaButton.PLAY, CarPlayMediaButton.PAUSE,
+                CarPlayMediaButton.NEXT, CarPlayMediaButton.PREVIOUS)) return false
+        send(index, "notification")
+        return true
+    }
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController, resumeFocus: (() -> Unit)? = null) {
@@ -112,12 +167,17 @@ internal object CarPlayMediaKeys {
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
                 nowPlaying = update
+                // A paused phone can publish metadata before opening an audio stream. Expose
+                // its controls without requesting focus or pretending audio is playing.
+                if (session == null && resumeFocus != null &&
+                    (update.title != null || update.elapsedMillis != null)) appContext?.let(::start)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
                 // Republishing the metadata each time sent a copy of the artwork through system_server
                 // to every media listener, and on a DiLink 5.0 Tang that exhausted memory within
                 // minutes. The position goes in the playback state.
                 if (metadataChanged) session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
                 publishPlaybackStateLocked()
+                if (metadataChanged) notifyChangedLocked()
             }
         }
     }
@@ -183,13 +243,25 @@ internal object CarPlayMediaKeys {
         val granted = request != null && audio?.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         focusRequest = request
         focusHeld = granted
+        val expected = controller
+        val callback = CarPlayMediaCallback(
+            bydHardwareToggle = { appContext?.let(com.shilapi.xcertplay.hud.BydOutputSettings::integrationAllowed) == true },
+            observe = { event -> synchronized(this) { if (controller === expected) observeKey(event, "media_session") } },
+            send = { index, source -> synchronized(this) { if (controller === expected) send(index, source) } },
+        )
+        activeCallback = callback
         session = MediaSession(context, "DiPlay CarPlay").apply {
             setCallback(callback, mainHandler)
+            setPlaybackToLocal(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+            setSessionActivity(PendingIntent.getActivity(context, 2, Intent(context, CarPlayHostActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
             isActive = true
         }
         Log.i(TAG, "media keys active focusGranted=$granted")
         controller?.recordAudioFocusDiagnostic("media-session active independentRequest=${request != null} granted=$granted")
+        controller?.recordMediaControlDiagnostic("session-created ${diagnosticState()}")
     }
 
     private fun releaseLocked() {
@@ -200,6 +272,10 @@ internal object CarPlayMediaKeys {
             it.release()
         }
         session = null
+        activeCallback = null
+        lastPublishedPlaying = null
+        keySamples = 0
+        commands = 0
         mediaAudioActive = false
         nowPlaying = CarPlayNowPlaying()
         artwork = null
@@ -208,14 +284,17 @@ internal object CarPlayMediaKeys {
         focusRequest = null
         focusHeld = false
         resumeFocus = null
+        notifyChangedLocked()
     }
 
-    private fun publishPlaybackStateLocked() {
-        val playing = if (nowPlaying.elapsedMillis != null || nowPlaying.title != null) {
+    private fun isPlayingLocked(): Boolean = if (nowPlaying.elapsedMillis != null || nowPlaying.title != null) {
             nowPlaying.playing
         } else {
             mediaAudioActive
         }
+
+    private fun publishPlaybackStateLocked() {
+        val playing = isPlayingLocked()
         session?.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(ACTIONS)
@@ -229,9 +308,18 @@ internal object CarPlayMediaKeys {
                 )
                 .build(),
         )
+        if (session != null && lastPublishedPlaying != playing) {
+            lastPublishedPlaying = playing
+            controller?.recordMediaControlDiagnostic("state-published ${diagnosticState()}")
+            notifyChangedLocked()
+        }
     }
 
     private fun send(index: Int, source: String) {
+        synchronized(this) {
+            commands++
+            controller?.recordMediaControlDiagnostic("command count=$commands source=$source index=$index")
+        }
         // While the car's video player is on screen the wheel drives it: a CarPlay play/pause would
         // make the iPhone end the video session.
         if (CarPlayVideo.onMediaKey(index)) {
@@ -241,11 +329,6 @@ internal object CarPlayMediaKeys {
         val sent = synchronized(this) { controller }?.sendMediaButton(index, source) ?: false
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
     }
-
-    private val callback = CarPlayMediaCallback(
-        bydHardwareToggle = { appContext?.let(com.shilapi.xcertplay.hud.BydOutputSettings::integrationAllowed) == true },
-        send = ::send,
-    )
 
     /** Whether [next] changes what the media session's metadata shows; position and play state do not. */
     internal fun metadataChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
@@ -325,14 +408,24 @@ internal object CarPlayMediaKeys {
  */
 internal class CarPlayMediaCallback(
     private val bydHardwareToggle: () -> Boolean = { true },
+    private val observe: (KeyEvent) -> Unit = {},
     private val send: (index: Int, source: String) -> Unit,
 ) : MediaSession.Callback() {
     override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
         @Suppress("DEPRECATION")
         val event = mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
-        val index = CarPlayMediaButton.forKeyCode(event.keyCode, bydHardwareToggle()) ?: return super.onMediaButtonEvent(mediaButtonIntent)
+        runCatching { observe(event) }
+        if (CarPlayMediaButton.forKeyCode(event.keyCode, bydHardwareToggle()) == null)
+            return super.onMediaButtonEvent(mediaButtonIntent)
+        return dispatchKey(event, "")
+    }
+
+    fun onForegroundKey(event: KeyEvent): Boolean = dispatchKey(event, "activity_")
+
+    private fun dispatchKey(event: KeyEvent, sourcePrefix: String): Boolean {
+        val index = CarPlayMediaButton.forKeyCode(event.keyCode, bydHardwareToggle()) ?: return false
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            send(index, KeyEvent.keyCodeToString(event.keyCode))
+            send(index, sourcePrefix + KeyEvent.keyCodeToString(event.keyCode))
         }
         return true
     }

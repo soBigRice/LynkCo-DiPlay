@@ -8,6 +8,7 @@ import android.net.TetheringInterface
 import android.net.TetheringManager
 import android.os.Build
 import androidx.annotation.RequiresApi
+import com.shilapi.xcertplay.shared.R
 import java.io.Closeable
 import java.io.File
 import java.net.NetworkInterface
@@ -20,6 +21,9 @@ internal class ManualHotspotInterfaces(
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val publicTethering = if (Build.VERSION.SDK_INT >= 36) PublicTethering(context) else null
     private var lastLegacyDiagnostic: String? = null
+    private var lastDriverDiagnostic: List<String> = emptyList()
+    private val readLegacyModes = Build.VERSION.SDK_INT == Build.VERSION_CODES.P &&
+        context.resources.getBoolean(R.bool.config_manual_hotspot_strict_interface)
 
     fun sample(): HotspotNetworkSnapshot {
         val ap = publicTethering?.interfaces ?: legacyApInterfaces()
@@ -45,11 +49,25 @@ internal class ManualHotspotInterfaces(
                 }.getOrNull()
             }
         }.getOrDefault(emptyList())
+        val apEnabled = CarHotspotStatus.isEnabled(context)
+        // OEM local APs can be absent from getTetheredIfaces(). An enabled switch or an
+        // old wlan0 address alone is insufficient; require a positive read-only driver result.
+        val driverModes = if (readLegacyModes && apEnabled == true) interfaces
+            .filter { it.up && it.wireless && ap?.contains(it.name) != true }
+            .associate { it.name to LegacyHotspotRadio.readMode(it.name) } else emptyMap()
+        val driverDiagnostic = driverModes.map { (name, reading) ->
+            "hotspot driver iface=$name mode=${reading.mode} error=${reading.error}"
+        }
+        if (driverDiagnostic != lastDriverDiagnostic) {
+            lastDriverDiagnostic = driverDiagnostic
+            driverDiagnostic.forEach(onDiagnostic)
+        }
         val after = runCatching { connectivity?.activeNetwork }
         return HotspotNetworkSnapshot(
             interfaces, ap, networks?.filter { it.second }?.mapNotNull { it.first }?.toSet(), defaultName,
             consistent = before.isSuccess && after.isSuccess && before.getOrNull() == after.getOrNull(),
-            apEnabled = CarHotspotStatus.isEnabled(context),
+            apEnabled = apEnabled,
+            driverApInterfaces = driverModes.filterValues { it.isAccessPoint }.keys,
             upstreamInterfaces = networks?.mapNotNull { it.first }?.toSet(),
             stationIpv4 = runCatching {
                 context.getSystemService(android.net.wifi.WifiManager::class.java)?.connectionInfo

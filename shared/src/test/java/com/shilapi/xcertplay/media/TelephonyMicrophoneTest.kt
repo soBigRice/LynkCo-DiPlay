@@ -92,6 +92,31 @@ class TelephonyMicrophoneTest {
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
     }
 
+    @Test fun thirdCaptureKeepsTheOlderReleaseBarrierAfterCancellingTheSecond() = thirdCapture(false)
+
+    @Test fun failedOlderCaptureReleaseDoesNotOpenTheThirdMicrophone() = thirdCapture(true)
+
+    private fun thirdCapture(failed: Boolean) {
+        val previous = java.util.concurrent.CompletableFuture<Unit>()
+        @Suppress("UNCHECKED_CAST")
+        val tails = sink.javaClass.getDeclaredField("microphoneTails").apply { isAccessible = true }
+            .get(sink) as MutableMap<Pair<Int, String>, java.util.concurrent.CompletableFuture<Unit>>
+        tails[telephony.type to telephony.audioType] = previous
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        val next = telephony.copy(owner = com.shilapi.xcertplay.airplay.MediaStreamOwner(1, 3))
+        sink.onMicrophoneStarted(next, config("telephony"))
+        assertFalse("A pending release must prevent capture", readStarted.await(200, TimeUnit.MILLISECONDS))
+        assertEquals(AudioManager.MODE_NORMAL, manager.mode)
+        if (failed) {
+            previous.completeExceptionally(IllegalStateException("Synthetic old capture release failure"))
+            assertFalse(readStarted.await(200, TimeUnit.MILLISECONDS))
+            assertEquals(AudioManager.MODE_NORMAL, manager.mode)
+        } else {
+            previous.complete(Unit)
+            assertEquals(AudioRecord.RECORDSTATE_RECORDING, awaitCapture().recordingState)
+        }
+    }
+
     @Test fun telephonyEnablesEffectsOnItsRecorderAndRestoresThePreviousMode() {
         manager.mode = AudioManager.MODE_RINGTONE
         sink.onMicrophoneStarted(telephony, config("telephony"))

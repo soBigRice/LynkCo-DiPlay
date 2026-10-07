@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.AudioCodecKind
@@ -44,6 +45,7 @@ internal class AudioFocusCoordinator(
     private val enabled: Boolean,
     private val coordinated: Boolean = false,
     private val report: (String) -> Unit = {},
+    private val onFocusEvent: () -> Unit = {},
 ) {
     private data class Entry(val channel: AudioChannel, val attributes: AudioAttributes)
 
@@ -52,13 +54,20 @@ internal class AudioFocusCoordinator(
     private var request: AudioFocusRequest? = null
     private var requestedChannel: AudioChannel? = null
     private var focusGranted = false
+    private var focusPending = false
+    private var requestAccepted = false
     private var focusVolume = FULL_VOLUME
+    private var volumeApplyErrors = 0
     private var focusEpoch = 0L
+    private var focusRequestedAt: Long? = null
+    private var lastFocusResult: Int? = null
     private fun listener(epoch: Long) = AudioManager.OnAudioFocusChangeListener { change ->
         synchronized(this) {
             if (epoch != focusEpoch) return@synchronized
             runCatching { report("Audio: focus change=$change activeTracks=${active.size}") }
+            focusPending = false
             focusGranted = change == AudioManager.AUDIOFOCUS_GAIN
+            if (change == AudioManager.AUDIOFOCUS_LOSS) requestAccepted = false
             when (change) {
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> setVolume(DUCKED_VOLUME)
                 AudioManager.AUDIOFOCUS_GAIN -> setVolume(FULL_VOLUME)
@@ -67,6 +76,7 @@ internal class AudioFocusCoordinator(
                 // The ordinary upstream profile keeps audio running on loss. Some head units
                 // do not send a later gain callback after taking focus back.
             }
+            reportFocusState("callback")
         }
     }
 
@@ -85,9 +95,20 @@ internal class AudioFocusCoordinator(
 
     /** A new iPhone play transition can reclaim focus without recreating its audio stream. */
     @Synchronized fun resumeMedia() {
-        if (coordinated && !focusGranted && active.values.any { it.channel == AudioChannel.MEDIA }) {
+        if (coordinated && !focusGranted && !focusPending && active.values.any { it.channel == AudioChannel.MEDIA }) {
             refreshRequest(force = true)
         }
+    }
+
+    @Synchronized fun diagnosticState(): String =
+        "focusEnabled=$enabled coordinated=$coordinated epoch=$focusEpoch channel=${requestedChannel ?: "none"} " +
+            "requestResult=${lastFocusResult ?: "none"} granted=$focusGranted pending=$focusPending " +
+            "appVolumeRequested=$focusVolume volumeApplyErrors=$volumeApplyErrors activeTracks=${active.size} " +
+            "requestAgeMs=${focusRequestedAt?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0) } ?: -1}"
+
+    private fun reportFocusState(point: String) {
+        runCatching { report("Audio: focus state point=$point ${diagnosticState()}") }
+        if (coordinated) runCatching(onFocusEvent)
     }
 
     private fun refreshRequest(force: Boolean = false) {
@@ -98,10 +119,17 @@ internal class AudioFocusCoordinator(
             request = null
             requestedChannel = null
             focusGranted = false
+            focusPending = false
+            requestAccepted = false
             focusVolume = FULL_VOLUME
+            volumeApplyErrors = 0
+            focusRequestedAt = null
+            lastFocusResult = null
+            runCatching { report("Audio: focus state point=released ${diagnosticState()}") }
             return
         }
-        if (!force && request != null && requestedChannel == primary.channel) return
+        if (!force && request != null && requestedChannel == primary.channel &&
+            (!coordinated || requestAccepted)) return
         val epoch = ++focusEpoch
         request?.let { manager?.abandonAudioFocusRequest(it) }
         val gain = when (primary.channel) {
@@ -112,21 +140,31 @@ internal class AudioFocusCoordinator(
         }
         val next = AudioFocusRequest.Builder(gain)
             .setAudioAttributes(primary.attributes)
+            // OS N may lock focus during source switching. Keep a delayed request alive so
+            // GAIN can unmute existing tracks without another iPhone play/stream transition.
+            .setAcceptsDelayedFocusGain(coordinated)
             .setOnAudioFocusChangeListener(listener(epoch), Handler(Looper.getMainLooper()))
             .build()
         request = next
         requestedChannel = primary.channel
+        focusRequestedAt = SystemClock.elapsedRealtime()
         val result = manager?.requestAudioFocus(next)
+        lastFocusResult = result
         focusGranted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        focusPending = result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
+        requestAccepted = focusGranted || focusPending
         if (coordinated) setVolume(if (focusGranted) FULL_VOLUME else 0f)
         val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result activeTracks=${active.size}"
         Log.i(TAG, line)
         runCatching { report(line) }
+        reportFocusState("request")
     }
 
     private fun setVolume(volume: Float) {
         focusVolume = volume
-        active.keys.forEach { track -> runCatching { track.setVolume(volume) } }
+        volumeApplyErrors = active.keys.count { track ->
+            runCatching { track.setVolume(volume) }.getOrNull() != AudioTrack.SUCCESS
+        }
     }
 
     private fun AudioChannel.focusPriority(): Int = when (this) {
@@ -167,6 +205,7 @@ class AndroidMediaSink(
     private val onAudioDiagnostic: (String) -> Unit = {},
     /** True while any music ("media") audio stream is running; called from media threads. */
     private val onMediaAudioChanged: (Boolean) -> Unit = {},
+    private val onAudioFocusEvent: () -> Unit = {},
 ) : MediaSink {
     private val resources = MediaResourceScope()
     @Volatile private var closed = false
@@ -181,6 +220,7 @@ class AndroidMediaSink(
         audioFocusEnabled,
         coordinatedAudioFocus,
         onAudioDiagnostic,
+        onAudioFocusEvent,
     )
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
@@ -349,17 +389,23 @@ class AndroidMediaSink(
 
     fun resumeAudioFocusForPlayback() = audioFocusCoordinator.resumeMedia()
 
+    fun diagnosticState(): String = "audioStreams=${audioRenderers.size} videoStreams=${videoDecoders.size} " +
+        "attachedSurfaces=${surfaces.size} ${audioFocusCoordinator.diagnosticState()}"
+
     @Synchronized
     override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
         if (closed) return
+        // Repeated SETUP keeps the existing start dependency, including while it is waiting.
+        if (audioRenderers[id]?.format == format) return
         val slot = id.type to id.audioType
         // Two RTSP sessions may coexist, but only the latest SETUP may own a physical output.
         audioRenderers.keys.filter { it != id && it.type == id.type && it.audioType == id.audioType }
             .forEach { audioRenderers.remove(it)?.close(); updateMediaAudio(it, false) }
         val renderer = audioRenderer(id, format)
-        val predecessor = audioTails.put(slot, renderer.completion)
+        val predecessor = audioTails[slot]
+        audioTails[slot] = releaseTail(predecessor, renderer.completion)
         if (format.audioType == "media") updateMediaAudio(id, true)
-        if (predecessor == null || predecessor === renderer.completion) renderer.start()
+        if (predecessor == null) renderer.start()
         else predecessor.whenComplete { _, error ->
             synchronized(this) {
                 if (!closed && audioRenderers[id] === renderer && error == null) renderer.start()
@@ -402,7 +448,8 @@ class AndroidMediaSink(
         uplink.completion.whenComplete { _, _ -> synchronized(this) {
             if (microphoneUplinks.remove(id, uplink)) restoreAudioMode(id)
         } }
-        val predecessor = microphoneTails.put(slot, uplink.completion)
+        val predecessor = microphoneTails[slot]
+        microphoneTails[slot] = releaseTail(predecessor, uplink.completion)
         val start: (Throwable?) -> Unit = { predecessorError -> synchronized(this) {
             if (closed || microphoneUplinks[id] !== uplink || predecessorError != null) uplink.close()
             else try {
@@ -515,15 +562,21 @@ class AndroidMediaSink(
     private fun newVideoDecoder(type: Int, surface: Surface?, statsLabel: String? = null): VideoDecoder {
         val key = "$type:${statsLabel.orEmpty()}"
         val recover = videoRecoveryHandlers[type] ?: {}
+        val predecessor = videoTails[key]
         return VideoDecoder(type, surface, videoWidth, videoHeight, preferSoftwareHevcDecoder,
             requestKeyFrame = { requestVideoRecovery(recover) },
             report = videoDiagnosticHandlers[type] ?: {}, statsLabel = statsLabel,
-            predecessor = videoTails[key],
+            predecessor = predecessor,
         ).also {
             resources.track(it.completion)
-            videoTails[key] = it.completion
+            videoTails[key] = releaseTail(predecessor, it.completion)
         }
     }
+
+    // Cancelling an unstarted successor can finish its own cleanup immediately. Its slot must
+    // still retain every earlier native release, including failures, for the next successor.
+    private fun releaseTail(previous: CompletableFuture<Unit>?, current: CompletableFuture<Unit>): CompletableFuture<Unit> =
+        if (previous == null) current else CompletableFuture.allOf(previous, current).thenApply { Unit }
 
     @Synchronized
     private fun audioRenderer(id: AudioStreamId, format: AudioFormat): AudioRenderer {
@@ -553,7 +606,7 @@ class AndroidMediaSink(
 
 /** Serial MediaCodec video decoder: one worker owns configure and frame feeding. */
 private class VideoDecoder(
-    streamType: Int,
+    private val streamType: Int,
     surface: Surface?,
     private val width: Int,
     private val height: Int,
@@ -756,9 +809,14 @@ private class VideoDecoder(
             }
             codec.configure(format, surface, null, 0)
             codec.start()
+            val firstPresented = AtomicBoolean()
             runCatching {
                 codec.setOnFrameRenderedListener({ source, ptsUs, renderedNs ->
-                    if (running && decoder === source) stats.onPresented(ptsUs, renderedNs)
+                    if (running && decoder === source) {
+                        stats.onPresented(ptsUs, renderedNs)
+                        if (firstPresented.compareAndSet(false, true))
+                            runCatching { report("first frame presented stream=$streamType surfaceValid=${surface.isValid} atNs=$renderedNs") }
+                    }
                 }, presentationHandler)
             }.onFailure { report("presentation callback unavailable error=${it.javaClass.simpleName}") }
             codec
@@ -1150,6 +1208,7 @@ private class AudioRenderer(
                 configure = { diagnosticStage = "decoder-configure"; it.configure(mediaFormat, null, null, 0) },
                 start = { diagnosticStage = "decoder-start"; it.start() },
                 release = { it.release() },
+                onReleaseFailure = { releaseFailure = it },
             ).also {
                 // A vendor name getter or diagnostic callback must not discard a started codec.
                 runCatching {
@@ -1650,6 +1709,7 @@ private class AudioRenderer(
         Log.i(STATS_TAG, line)
         report(line)
         runCatching { report("Audio: output audioType=${format.audioType} ${AudioOutputDiagnostics.snapshot(diagnosticContext, currentTrack)} ${signalStats.take()}") }
+        runCatching { report("Audio: focus sample audioType=${format.audioType} ${audioFocusCoordinator.diagnosticState()}") }
         if (format.codec != AudioCodecKind.LPCM) {
             // Keep this separate: the exported diagnostic recorder caps each line at 700 characters.
             val decoderLine = "Audio: decoder stats audioType=${format.audioType} codec=${format.codec} " +

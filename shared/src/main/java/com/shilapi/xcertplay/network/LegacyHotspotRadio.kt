@@ -3,6 +3,24 @@ package com.shilapi.xcertplay.network
 /** Read-only, ordinary-UID fallback for drivers with Wireless Extensions (not an AP setter). */
 internal object LegacyHotspotRadio {
     data class Reading(val frequencyMHz: Int?, val error: String?)
+    data class ModeReading(val mode: Int?, val error: String?) {
+        val isAccessPoint: Boolean get() = mode == 3 // Linux Wireless Extensions IW_MODE_MASTER
+    }
+
+    fun readMode(interfaceName: String): ModeReading {
+        if (!interfaceName.matches(Regex("(?:ap|wlan|swlan|softap)[0-9]+")))
+            return ModeReading(null, "invalid AP interface")
+        val raw = try { LegacyHotspotNative.queryMode(interfaceName) }
+        catch (_: LinkageError) { return ModeReading(null, "driver reader unavailable") }
+        return decodeMode(raw)
+    }
+
+    internal fun decodeMode(raw: IntArray): ModeReading = when {
+        raw.size != 2 -> ModeReading(null, "invalid driver response")
+        raw[0] != 0 -> ModeReading(null, "driver mode query errno=${raw[0]}")
+        raw[1] !in 0..7 -> ModeReading(null, "unrecognized driver mode")
+        else -> ModeReading(raw[1], null)
+    }
 
     fun read(interfaceName: String, band: String?): Reading {
         if (!interfaceName.matches(Regex("(?:ap|wlan|swlan|softap)[0-9]+")))
@@ -48,4 +66,5 @@ internal object LegacyHotspotRadio {
 private object LegacyHotspotNative {
     init { System.loadLibrary("local_hotspot_radio") }
     external fun query(interfaceName: String): IntArray
+    external fun queryMode(interfaceName: String): IntArray
 }

@@ -27,17 +27,22 @@ class MediaCodecStartupTest {
     @Test fun startFailureIsPreservedEvenIfReleaseAlsoFails() {
         val events = mutableListOf<String>()
         val failure = IllegalStateException("start rejected")
+        val cleanup = RuntimeException("release rejected")
+        var releaseFailure: Throwable? = null
         try {
             MediaCodecStartup.create(
                 create = { "codec" },
                 configure = { events += "configure:$it" },
                 start = { events += "start:$it"; throw failure },
-                release = { events += "release:$it"; throw RuntimeException("release rejected") },
+                release = { events += "release:$it"; throw cleanup },
+                onReleaseFailure = { releaseFailure = it },
             )
             fail("The original failure must propagate")
         } catch (actual: IllegalStateException) {
             assertSame(failure, actual)
         }
+        assertSame(cleanup, releaseFailure)
+        assertSame(cleanup, failure.suppressed.single())
         assertEquals(listOf("configure:codec", "start:codec", "release:codec"), events)
     }
 

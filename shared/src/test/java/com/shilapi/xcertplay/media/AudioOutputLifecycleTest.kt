@@ -79,6 +79,42 @@ class AudioOutputLifecycleTest {
         val failure = assertThrows(java.util.concurrent.ExecutionException::class.java) { sink.awaitClosed(2000) }
         assertTrue(failure.cause is IllegalStateException)
     }
+    @Test fun thirdSetupAndDuplicateSetupWaitForAllOlderNativeReleases() = successiveReplacement(false)
+
+    @Test fun failedOlderReleaseAlsoBlocksTheThirdSetup() = successiveReplacement(true)
+
+    private fun successiveReplacement(failRelease: Boolean) {
+        Output.blockRelease = true
+        Output.failRelease = failRelease
+        val b = id.copy(owner = MediaStreamOwner(1, 2))
+        val c = id.copy(owner = MediaStreamOwner(1, 3))
+        val cReady = CountDownLatch(1)
+        val diagnostics = CopyOnWriteArrayList<String>()
+        val sink = AndroidMediaSink(onAudioDiagnostic = {
+            diagnostics.add(it)
+            if (it.startsWith("Audio: ready") && it.contains("generation=3")) cReady.countDown()
+        })
+        try {
+            sink.onAudioStarted(id, format, 0); send(sink)
+            assertTrue(Output.successfulWrite.await(2, TimeUnit.SECONDS))
+            sink.onAudioStarted(b, format, 0)
+            assertTrue(Output.releaseEntered.await(2, TimeUnit.SECONDS))
+            sink.onAudioStarted(c, format, 0)
+            sink.onAudioStarted(c, format, 0)
+            assertFalse("C must not create an output while A is releasing", cReady.await(200, TimeUnit.MILLISECONDS))
+            Output.resumeRelease.countDown()
+            if (failRelease) {
+                assertFalse("A release failure must quarantine subsequent outputs", cReady.await(200, TimeUnit.MILLISECONDS))
+            } else {
+                assertTrue("C must start after A releases", cReady.await(2, TimeUnit.SECONDS))
+                assertEquals(1, diagnostics.count { it.startsWith("Audio: ready") && it.contains("generation=3") })
+            }
+        } finally {
+            Output.resumeRelease.countDown(); sink.close()
+            if (failRelease) assertThrows(java.util.concurrent.ExecutionException::class.java) { sink.awaitClosed(2000) }
+            else assertTrue(sink.awaitClosed(2000))
+        }
+    }
     @Suppress("UNCHECKED_CAST") private fun renderers(sink: AndroidMediaSink) =
         sink.javaClass.getDeclaredField("audioRenderers").apply { isAccessible = true }.get(sink) as Map<AudioStreamId, Any>
     @Suppress("UNCHECKED_CAST") private fun completion(renderer: Any) =

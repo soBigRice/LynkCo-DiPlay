@@ -55,6 +55,37 @@ class VideoOutputLifecycleTest {
         }
     }
 
+    @Test fun thirdReplacementCannotSkipAnOlderNativeRelease() {
+        val texture = SurfaceTexture(0)
+        val surface = Surface(texture)
+        val sink = AndroidMediaSink(surface)
+        val old = VideoStreamId(110, MediaStreamOwner(1, 1))
+        val next = VideoStreamId(110, MediaStreamOwner(2, 1))
+        fun setup(id: VideoStreamId) {
+            sink.onScreenStreamActive(id, true)
+            sink.onVideoCodec(id, VideoCodec.H264)
+            sink.onVideoConfig(id, byteArrayOf(0, 0, 0, 1, 0x67, 0, 0, 0, 1, 0x68))
+        }
+        try {
+            setup(old)
+            assertTrue(Output.dequeueEntered.await(2, TimeUnit.SECONDS))
+            setup(next)
+            Output.resumeDequeue.countDown()
+            assertTrue(Output.releaseEntered.await(2, TimeUnit.SECONDS))
+            assertEquals(0, Output.presented.get())
+            assertEquals("Successor cannot configure while the old codec owns native resources", 1, Output.configures.get())
+            setup(VideoStreamId(110, MediaStreamOwner(3, 1)))
+            assertFalse("C cannot configure before A releases", Output.secondConfigured.await(200, TimeUnit.MILLISECONDS))
+            Output.resumeRelease.countDown()
+            assertTrue(Output.secondConfigured.await(2, TimeUnit.SECONDS))
+            assertEquals(0, Output.presented.get())
+        } finally {
+            Output.resumeDequeue.countDown(); Output.resumeRelease.countDown()
+            sink.close(); assertTrue(sink.awaitClosed(2000))
+            surface.release(); texture.release()
+        }
+    }
+
     @Test fun closeAlsoWaitsForAnAlreadyRunningKeyframeCommand() {
         val sink = AndroidMediaSink()
         val entered = CountDownLatch(1)

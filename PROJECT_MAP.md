@@ -1,10 +1,10 @@
 # LynkCoCarPlay 实现入口
 
 整合基线：DiPlay 0.2.12 `2fc876e578eba3905a5b873e3c2dbd74f498433a`；领克旧适配快照 `6d8486a`（test13a）。test14 整合、test15 双入口和 test16 音源交接/诊断和 test17 资源生命周期见适配文档末尾。
-核对日期：2026-10-06。test14 已整合上游 0.2.12 并同步 fork/main；test15 已实现首页无线/有线双入口和配对复用；test16 根据 10 月 5 日实车日志处理有线蓝牙媒体交接、统一领克音频焦点，并补齐实际输出/呈现/热点诊断。具体验证边界见适配文档末尾。保留领克配色、设置、环境检测、署名、自动临时热点及 USB/音频适配。2026-10-06 用户确认 test17 有线可以正常使用、流畅度尚可；无线仍待实车验证。模拟器无法证明真实 CarPlay 认证、无线投屏或行车稳定性。
+核对日期：2026-10-07。test14 已整合上游 0.2.12 并同步 fork/main；test15 已实现首页无线/有线双入口和配对复用；test16 根据 10 月 5 日实车日志处理有线蓝牙媒体交接、统一领克音频焦点，并补齐实际输出/呈现/热点诊断。具体验证边界见适配文档末尾。保留领克配色、设置、环境检测、署名、自动临时热点及 USB/音频适配。2026-10-06 用户确认 test17 有线可以正常使用、流畅度尚可；无线仍待实车验证。模拟器无法证明真实 CarPlay 认证、无线投屏或行车稳定性。
 
 - [领克适配、构建与实车验收](docs/LYNK_OS_N.md)：2023 款领克 03，用户提供的 OS N 2.0 / Android 9，iPhone 14 Pro / iOS 27。
-- 当前实现和边界见适配文档末尾「test17」：用户确认后已统一 runtime/stream 所有权、异步关闭屏障、失效音轨恢复、进程热点 pending 和系统 VPN 回调。用户已确认有线使用和流畅度；无线仍待验证，自动验证结果及验收范围以文末记录为准。
+- 当前实现和边界见适配文档「test17～test24」：test17 有线使用和流畅度曾获用户确认；后续按实车新日志选择性修复和增加诊断。test24 完成标准媒体控制接入与车机信息读取，方向盘/原生卡片及无线仍待实车验证，自动验证结果及验收范围以文末记录为准。
 - [官网与应用更新](docs/UPDATES.md)：Pages 静态站与共享公开元数据；`DiPlayActivity.checkAppUpdates` → `LynkUpdateRequest` → `LynkAppUpdates.parse`，仅领克包启用，当前完整 APK 暂不发布。
 - `mobile/build.gradle.kts`：普通 Android 车机 APK；`lynkDebug` 独立包名与资源覆盖。不使用面向 Android Automotive OS 的 `automotive` target。
 - `DiPlayActivity.connectionHome/about`：首页和关于页注明基于 DiPlay 修改，保留上游项目链接及许可证声明；后续视觉调整不得移除署名。
@@ -15,8 +15,12 @@
 - `DiPlayActivity.prepareLynkWireless/resumeWirelessPreparation` → `DiPlayBluetooth.preferredPhone`：已保存且仍配对的地址优先，无保存时只自动选择唯一名称含 iPhone 的设备；多部/改名未选择的设备由用户选一次。蓝牙关闭先请求开启，准备页监听真实状态并自动继续；离开/取消清除待连接意图。广播只在 Activity 可见期间注册；同类型后台会话先恢复，不将 2.4GHz 交接后的蓝牙关闭当作解除配对。`LynkRememberedConnectionTest` 覆盖这些分支。
 - `common/.../CarPlaySettingsButton.kt`：领克投屏页右上角可拖动设置按钮，点击经 `openSettingsMenu` 打开设置；`DiPlayActivity` 的「返回 CarPlay」复用后台会话。拖动/取消不透传触摸或触发点击，三指入口保留。
 - `common/.../CarPlayMediaKeys.kt` → `CarPlayMediaButton.forKeyCode`：领克 PLAY/PAUSE 保持各自语义；BYD 才应用硬件 toggle 规则。控制器记录脱敏命令来源，AirPlay 记录 press/release 写出结果，iAP2 记录播放布尔变化；写出不等于手机执行。
+- test24：`CarPlayMediaKeys` 为领克已到达的暂停曲目元数据建立会话但不请求焦点；`CarPlaySessionNotification` 将同一会话 token 绑定到既有前台通知，提供上一首/播放或暂停/下一首，并保留断开。`DiPlaySessionService` 按 runtime epoch 验证内部按钮；`CarPlayHostActivity` 处理前台标准媒体键，未知键和音量键保持系统行为，后台分发仍由 Android 决定。每个媒体回调绑定原 controller，旧回调不能控制新连接。`CarPlayMediaIntegrationTest` 覆盖通知、按键重复、暂停状态、旧按钮/回调及刷新频率。
 - `common/.../ConnectionGuide.kt`：领克版按 `CarPlayStatus` 显示中文/英文连接阶段和失败后的操作，不再解析翻译后的提示。`config_simple_connection_flow` 只在领克包启用。
 - `common/.../ConnectionDiagnosticReport.kt`、`ConnectionEnvironmentSnapshot.kt`：一次汇总 USB/无线各自历史、阶段耗时、环境能力；`DiagnosticExportStore.kt`：API 28 本地报告与限定 FileProvider 分享，API 29+ Downloads。
+- test22：`CarPlayBackgroundSession.obtainLogs` 的单线程环境采样保留一个有界交接位置，避免 pending 已清除但 worker 尚未空闲时拒绝新会话任务；`EnvironmentSnapshotSchedulingTest` 用受控线程时序回放，不靠延时修改连接逻辑。
+- test23：`AudioFocusCoordinator` → `Logs.captureAudioContext` 在焦点事件后复用环境采样线程，`DiagnosticSampleBudget` 限制每会话最多 12 次、间隔至少 2 秒；`AudioOutputDiagnostics.inventory` 只读输出设备能力、音量、权限和平台过滤的播放状态。`ConnectionWaitSamples` 在等待阶段 5/15/30/60 秒采样 Surface/窗口，解码器另记首次实际呈现。热点错误使用不含名称的原因码，保留原脱敏规则。诊断不能更改焦点、路由、热点和视频策略；读取不到必须标为未知，详见适配文档「test23」。
+- `HeadUnitMediaDiagnostics.capture`：在既有后台环境快照/导出中读取系统构建、相关系统特性/共享库、桌面和系统媒体浏览服务、后台限制、应用自己的媒体通知，以及最多 16 个输入设备的媒体键能力。`CarPlayMediaKeys` 最多记录 48 条控制键元数据，不保存文字输入。无 VIN/序列号/位置/车辆总线读取，也不枚举其他应用的媒体会话。
 - `common/.../CarPlayEnvironmentCheck.kt`：只读采集当前系统、ABI 组件、解码器、本地认证、权限、USB 与无线前置条件；`evaluate` 独立输出已满足/需处理/待验证，按应用、有线、无线分组。不调用 `VpnService.prepare`，不申请权限、不开关无线、不 claim USB，未知 OEM 返回值不能通过。
 - `common/.../EnvironmentCheckPanel.kt`：检测结果和修复入口；`DiPlayActivity.checkEnvironment/resolveEnvironmentIssue` 负责后台读取、返回页面刷新与用户明确点击后的导航。`ConnectionDiagnosticReport` 在同一份有线/无线导出中附加检测结果。
 - `AirPlayPersistence.peekWirelessHotspotMode`：只读解析，与现有 `loadWirelessHotspotMode` 共用模式规则；迁移仍仅由原启动流程负责。`EnvironmentCheckReadOnlyTest`、`CarPlayEnvironmentCheckTest` 和 `LynkAutomaticHotspotTest` 保护 VPN、配置不变、未知结果和蓝牙交接边界。
@@ -24,12 +28,19 @@
 - `shared/.../transport/Iap2HandshakeDeadline.kt`：仅首次协商的预算；真实会话激活后解除，与长时间控制会话分开。
 - `common/.../DiPlaySessionService.kt`：连接前台服务；`BootReceiver.kt`：已开启启动选项后的开机入口。
 - `shared/.../network/LynkLocalHotspot.kt` / `LocalOnlyHotspotManager.kt`：领克 API28 自动创建临时热点、真实频段/信道校验；`LocalHotspotBluetooth.kt`：2.4 GHz Wi-Fi 交接后关闭蓝牙、结束/取消恢复及跨进程恢复标记。test12 实现和验证边界见适配文档。
-- `shared/.../orchestration/CarPlayController.kt`：USB / 蓝牙 iAP2、热点与 AirPlay 调度；`network/ManualHotspotManager.kt` → `ManualHotspotReadiness`：系统拥有的车机热点，合并稳定采样和发布前校验，领克仍使用 `ManualHotspotInterfacePolicy` 排除上联网卡/STA 别名并拒绝歧义。
+- `shared/.../orchestration/CarPlayController.kt`：USB / 蓝牙 iAP2、热点与 AirPlay 调度；`network/ManualHotspotManager.kt` → `ManualHotspotReadiness`：系统拥有的车机热点，合并稳定采样和发布前校验，领克仍使用 `ManualHotspotInterfacePolicy` 排除上联网卡/STA 别名并拒绝歧义。test22 的 API28 领克采样允许 `LegacyHotspotRadio.readMode` 只读确认 AP；必须同时观察到 AP 开启和可读取的上游列表，驱动失败/不支持不能成为 AP 证据。
 - `CarPlayBackgroundSession.beginClose` → `CarPlayController.close/whenClosed` → `AndroidMediaSink.whenTerminated`：Controller 控制/隧道 executor 与媒体 native 资源实际结束后才安装下一 plan；提示超时不转移所有权。`CarPlayRuntimeLifecycleTest` / `ControllerCloseCompletionTest` 保护窗口重建、服务代号、迟到资源、取消和释放失败。
+- test20：`AndroidMediaSink.releaseTail` 将同输出槽历代释放结果合并，等待中的 B 被取消也不能让 C 绕过 A；`MediaCodecStartup.onReleaseFailure` 将初始化清理失败写入媒体关闭结果。`AudioOutputLifecycleTest`、`VideoOutputLifecycleTest`、`TelephonyMicrophoneTest`、`AudioCodecLifecycleTest` 覆盖连续替换、重复 SETUP 和失败隔离。
+- test20：`CarPlayBackgroundSession.pauseRetry(owner, paused)` 将设置暂停绑定到当前窗口；解绑/替换释放旧暂停，成功连接清除延期请求。领克 `Failed` 与 `ConnectionGuide.failure` 共用用户处理判断，取消已排定和延期重试；设置取消同样遵守该判断，显式重试仍可恢复。`CarPlayRuntimeRecoveryTest` / `CarPlayHostSettingsTest` 覆盖后台运行、旧窗口回调和设置期间恢复。
 - `shared/.../network/CarPlayVpnService.tunnelBuilder`：有线 VPN 只路由 `fe80::/64`，通过 `addAllowedApplication(packageName)` 限于本应用，并用 `allowFamily(AF_INET)` 放行车机正常 IPv4，不给 iPhone 提供 Internet/NAT。`CarPlayVpnRoutingTest` 保护路由契约；报告网络快照明确标为 head-unit。
 - `shared/.../network/CarPlayVpnService.kt`：accept 后在 attachment 锁内核验 generation 与监听 socket，防止旧监听连接混入新会话；`CarPlayVpnGenerationTest` 用本地 socket 回放。
 - `shared/.../transport/IphoneUsbConfiguration.kt`：领克版在认领接口前读回活动配置；`IphoneUsbHost` 将实际配置传给 NCM，第二连接只核验、不重新配置设备。`IphoneUsbConfigurationTest` 回放 API 28 配置失败与清理边界。
 - `shared/.../transport/UsbConfigurationAccess.kt`、`shared/src/main/jni/usb_configuration.c`：借用 Android 已授权 fd 保留 errno；领克版 EBUSY 时由 `UsbDriverRecovery.kt` 核验并临时释放该 iPhone 的音频/HID 占用，USBMUX/NCM 最后关闭后尝试恢复，未知占用立即停止。`UsbDriverRecoveryTest` 覆盖恢复与竞争边界。
+- `UsbMuxFrameBuffer` / `MicrophoneConfig` / `AirPlaySession.acceptEvent`：2026-10-06 按用户授权仅提取上游通用修复。有效 USBMUX TCP 回复允许受限四字节尾部恢复；Siri 已观察格式的 RTP 时钟为 24 kHz，Opus 采集/编码仍为 48 kHz；事件 socket 开启 `TCP_NODELAY`。来源、回归与实车边界见适配文档末尾「上游通用修复提取」，未引入新增 BYD 接口/功能。
+- test21 / code39：当前本地源码的领克独立实车包，包含上述通用修复及已有品牌、生命周期、官网更新实现；签名/认证保持，Android9 覆盖安装和连接取消烟测见适配文档末尾「test21」。
+- test22 / code40：11:24 实车日志对应的焦点延迟恢复、API28 热点只读识别及环境采样交接修复；1,466 项自动回归通过、1 原有跳过，Android9 覆盖安装/连接取消通过。首次声音与无线仍待实车确认，未将用户立即锁屏解锁后的出图判断为视频缺陷。
+- test23 / code41：保留 test22 修复，增加限量的音频环境、画面等待节点、热点配置原因及连接能力诊断；1,474 项全量回归通过、1 原有跳过，最终日志分类调整后 41 项相关回归通过。API28 最终包覆盖安装、实际导出及取消清理通过；诊断细节与证据在适配文档「test23」，实车仍待确认。
+- test24 / code42（2026-10-07 核对）：补齐标准媒体通知/前台媒体键和只读车机诊断；完整回归 1,481 通过、1 原有跳过，最终诊断字段修正后 38 项相关回归通过。最终 APK 的 Android9 覆盖安装、导出和取消清理通过；模拟播放状态下通知/前台按键到达 controller，不能代替真实方向盘、原生卡片或 iPhone 执行验证。详见适配文档「test24」。
 - `shared/.../transport/Iap2WirelessControlClient.kt`：认证和订阅后处理 `5702→5703`、`4300→4301`；false/unknown 可用性仅作诊断，不作为启动或用户授权门槛。`Iap2WirelessHandshakeReplayTest` 通过真实 Link/CSM/认证客户端回放这一分支。
 - `shared/.../transport/WirelessBluetoothIdentity.kt`：自动系统地址优先，其次可选手填补充，最后稳定配置回退；同一解析结果用于 iAP2/AirPlay。诊断只导出来源和读取结果。
 - `shared/.../network/CarPlayBonjour.kt`：热点接口公告/发现与网络邀请；邀请头使用 48 位接收端 MAC 数值的十进制形式，TXT 保持 MAC 原表示。发现/邀请/后台异常经 `connectionDiagnostic` 独立保存，不受菜单影响；启动返回不等于公告送达。`CarPlayBonjourTest` 使用独立参考向量。
@@ -42,7 +53,7 @@
 上述省略路径的源码前缀为 `src/main/java/com/shilapi/xcertplay/`；测试前缀为 `java/com/shilapi/xcertplay/`。
 
 - `shared/.../network/WiredBluetoothMediaHandoff.kt`：仅 Lynk/API28 有线当前 session 的 `disableBluetooth` 命令触发，匹配命令指明且已连接的 A2DP Sink 目标；不根据无线保存地址猜目标、不关闭总开关/HFP、不改配对或优先级。串行工作线程、最终 owner 检查与请求同步、controller 关闭前立即 cancel；结束只尝试恢复本会话断开的设备，已有别的媒体设备则不抢占。测试 `BluetoothMediaLeaseTest` / `WiredBluetoothMediaHandoffTest`。
-- `AndroidMediaSink.AudioFocusCoordinator` / `CarPlayMediaKeys.attach(resumeFocus)`：领克仅由 sink 请求焦点，媒体键保留 MediaSession；焦点回调带请求代号，旧 LOSS 不能静音新请求。导航单独播放取临时焦点，和音乐同时播放不重抢；手机再次开始播放可恢复失去的焦点。`LynkAudioFocusTest` 保护普通版及显式禁用设置。
+- `AndroidMediaSink.AudioFocusCoordinator` / `CarPlayMediaKeys.attach(resumeFocus)`：领克仅由 sink 请求焦点，媒体键保留 MediaSession；焦点回调带请求代号，旧 LOSS/GAIN 不能更改新请求。导航单独播放取临时焦点，和音乐同时播放不重抢；手机再次开始播放可恢复失去的焦点。test22 接受系统延迟授权，等待期间保留请求，GAIN 直接恢复现有音轨；明确拒绝的请求不作为可复用授权，最后音轨释放后注销。`LynkAudioFocusTest` 保护普通版、显式禁用及延迟/拒绝/迟到回调。
 - `AudioOutputDiagnostics` / `PcmSignalStats`：记录音量、静音、BUS 输出、A2DP 状态和 PCM 非零数/峰值，不保留声音内容；通过 `AsyncDiagnosticLog` 有界异步写入。`HotspotDiagnostics` 保存启动前/失败/导出时的 AP 原始来源和网卡拓扑，开关 true 不再等于领克热点可用。
 - `VideoStats`：`released` 表示释放解码输出、`presented` 来自 `MediaCodec.OnFrameRenderedListener`，附队列等待/解码到呈现时间。`TouchLatencyProbe` 只统计两秒内下一帧代理值，不代表触摸响应内容；`WindowFrameDiagnostics` 在 Activity start/stop 间记录窗口耗时并释放线程。不能用这些计数宣称用户已验证流畅。
 
@@ -52,3 +63,4 @@
 - `HeadUnitProfile`：明确 Lynk 平台资源选取音频/蓝牙行为，不再复用 UI 或热点开关。
 
 - `mobile/src/lynkDebug/res/raw/ic_car_home.png`：test18 领克返回车机图标，覆盖 common 默认 BYD；Host → AirPlayConfig → `/info` 的 `oemIcons.imageData`，自定义图标/名称优先级不变。素材来源与验证见适配文档 test18。
+- `mobile/src/lynkDebug/AndroidManifest.xml` / `res/mipmap-anydpi-v26/ic_lynk_launcher.xml`：test19 桌面自适应领克图标；与 CarPlay 返回图标独立。`values`、`values-zh-rCN`、`values-uk` 同时覆盖 `app_name` 为 `Lynk&Co_CarPlay`，防止库的语言资源重新显示 DiPlay；连接通知读取同一资源，原版名称及改编署名保留。

@@ -29,6 +29,40 @@ class ManualHotspotReadinessTest {
         assertEquals("ap0", selectHotspotInterface(snapshot(iface("wlan1"), iface("ap0")), {}, true, true)?.name)
     }
 
+    @Test fun lynkCanUseDriverConfirmedApWhenOemTetheredListIsEmpty() {
+        // OS N: AP enabled, Ethernet provides Internet, wlan0 has a local address,
+        // but ConnectivityManager reports no tethered interfaces.
+        val value = snapshot(iface(), ap = emptySet(), default = "eth0.11")
+            .copy(driverApInterfaces = setOf("wlan0"), upstreamInterfaces = setOf("eth0.11"))
+        val selected = ManualHotspotReadiness({ value }, { false }, { now += it }, { now },
+            strictInterfaceSelection = true, preferIpv4 = true).await(1_500)
+        assertEquals("wlan0", selected.name)
+        assertEquals(ipv4, selected.address)
+        assertEquals(500L, now)
+        assertNull("The ordinary profile retains platform ownership policy", select(value))
+    }
+
+    @Test fun driverEvidenceCannotBypassApStateOrStationAndUpstreamGuards() {
+        val value = snapshot(iface(), ap = emptySet()).copy(driverApInterfaces = setOf("wlan0"))
+        for (invalid in listOf(
+            value.copy(apEnabled = false), value.copy(apEnabled = null),
+            value.copy(consistent = false), value.copy(defaultInterface = "wlan0"),
+            value.copy(wifiUpstreams = setOf("wlan0")), value.copy(wifiUpstreams = null),
+            value.copy(upstreamInterfaces = setOf("wlan0")), value.copy(upstreamInterfaces = null),
+            value.copy(stationIpv4 = "192.168.43.1"), value.copy(driverApInterfaces = emptySet()),
+            value.copy(interfaces = listOf(iface(up = false))),
+            value.copy(interfaces = listOf(iface(addresses = emptyList()))),
+        )) assertNull(selectHotspotInterface(invalid, {}, true, true))
+    }
+
+    @Test fun driverEvidenceStillRejectsAmbiguousApsAndP2p() {
+        val two = snapshot(iface(), iface("wlan1"), ap = emptySet())
+            .copy(driverApInterfaces = setOf("wlan0", "wlan1"))
+        assertNull(selectHotspotInterface(two, {}, true, true))
+        val p2p = snapshot(iface("p2p0"), ap = emptySet()).copy(driverApInterfaces = setOf("p2p0"))
+        assertNull(selectHotspotInterface(p2p, {}, true, true))
+    }
+
     @Test fun lynkRejectsStationAliasesAndNonWifiUpstreams() {
         val one = snapshot(iface("ap0"))
         assertNull(selectHotspotInterface(one.copy(stationIpv4 = "192.168.43.1"), {}, true, true))

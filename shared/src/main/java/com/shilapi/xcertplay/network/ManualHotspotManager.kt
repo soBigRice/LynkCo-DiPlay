@@ -78,7 +78,13 @@ class ManualHotspotManager(
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
 
         val apConfiguration = readApConfiguration()
+        reportConfiguration("Manual hotspot configuration readable=${apConfiguration != null} " +
+            "networkMatches=${apConfiguration?.let { it.ssid == expectedSsid } ?: "unknown"} " +
+            "observedBand=${apConfiguration?.band ?: "unknown"} expectedBand=$expectedBand " +
+            "observedChannel=${apConfiguration?.channel ?: "unknown"} expectedChannel=$expectedChannel " +
+            "observedSecurity=${apConfiguration?.security ?: "unknown"} expectedSecurity=$expectedSecurity")
         if (apConfiguration != null && apConfiguration.ssid != expectedSsid) {
+            reportConfiguration("Manual hotspot rejected reason=NETWORK_NAME_MISMATCH")
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot SSID does not match the active local AP configuration: " +
                     "'${apConfiguration.ssid}'",
@@ -131,6 +137,7 @@ class ManualHotspotManager(
             "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
             "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
         if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
+            reportConfiguration("Manual hotspot rejected reason=CREDENTIAL_MISSING")
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot is secured but no passphrase was provided")
         }
 
@@ -179,11 +186,14 @@ class ManualHotspotManager(
         interfaces.close()
     }
 
+    private fun reportConfiguration(message: String) { runCatching { onDiagnostic(message) } }
+
     private fun validateApConfiguration(configuration: ManualApConfiguration?) {
         configuration ?: return
         if (expectedChannel > 0 && configuration.channel > 0 &&
             configuration.channel != expectedChannel
         ) {
+            reportConfiguration("Manual hotspot rejected reason=CHANNEL_MISMATCH")
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot channel ${configuration.channel} does not match configured " +
                 "channel $expectedChannel",
@@ -197,6 +207,7 @@ class ManualHotspotManager(
         if (actualBand != null && expectedBand != ManualHotspotBand.AUTO &&
             actualBand != expectedBand
         ) {
+            reportConfiguration("Manual hotspot rejected reason=BAND_MISMATCH")
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot band ${wifiBandLabel(configuration.band)} does not match " +
                     "configured band ${wifiBandLabel(if (expectedBand == ManualHotspotBand.GHZ_2_4) 1 else 2)}",
@@ -205,6 +216,7 @@ class ManualHotspotManager(
         // WPA2 vs WPA3 variants are fine: the live security is what the iPhone is told (see start()).
         // Only an open/secured mismatch means the saved password cannot be right.
         if ((configuration.security == Iap2WirelessSecurity.NONE) != (expectedSecurity == Iap2WirelessSecurity.NONE)) {
+            reportConfiguration("Manual hotspot rejected reason=SECURITY_MISMATCH")
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot security ${configuration.security} does not match configured " +
                     "security $expectedSecurity",
@@ -213,9 +225,11 @@ class ManualHotspotManager(
         val frequency = configuration.frequencyMHz ?: return
         when (expectedBand) {
             ManualHotspotBand.GHZ_2_4 -> if (frequency !in 2_400..2_500) {
+                reportConfiguration("Manual hotspot rejected reason=FREQUENCY_BAND_MISMATCH")
                 throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot is not running on 2.4 GHz")
             }
             ManualHotspotBand.GHZ_5 -> if (frequency !in 5_150..5_895) {
+                reportConfiguration("Manual hotspot rejected reason=FREQUENCY_BAND_MISMATCH")
                 throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot is not running on 5 GHz")
             }
             ManualHotspotBand.AUTO -> Unit
@@ -284,7 +298,8 @@ class ManualHotspotManager(
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapSoftApSecurity(configuration.securityType),
             )
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            reportConfiguration("Manual hotspot configRead api=softAp unavailable=${(error.cause ?: error).javaClass.simpleName}")
             null
         }
     }
@@ -313,7 +328,8 @@ class ManualHotspotManager(
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapWifiConfigurationSecurity(configuration),
             )
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            reportConfiguration("Manual hotspot configRead api=legacy unavailable=${(error.cause ?: error).javaClass.simpleName}")
             null
         }
     }

@@ -47,18 +47,45 @@ internal object CarPlayBackgroundSession {
     private var retryAttempt = 0
     var retryStopped = false
         private set
-    private var retryPaused = false
+    private var retryPauseOwner = WeakReference<Any>(null)
+    private val retryPaused get() = retryPauseOwner.get() != null
     private var deferredRetry: Pair<String, WirelessStartupFailure?>? = null
     private var logs: Logs? = null
     private val snapshotPending = java.util.concurrent.atomic.AtomicBoolean()
+    // pending clears in the task's finally, before its worker is idle. Allow one
+    // handoff slot so an immediate new session cannot fail in that interval.
     private val snapshotExecutor = java.util.concurrent.ThreadPoolExecutor(0, 1, 5,
-        java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.SynchronousQueue<Runnable>(),
+        java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(1),
         { task -> Thread(task, "carplay-environment").apply { isDaemon = true } })
 
     data class Logs(val session: SessionLogFile, val connection: SessionLogFile) {
+        private val audioContextBudget = DiagnosticSampleBudget()
         fun append(message: String) {
             AsyncDiagnosticLog.append(session, message)
             AsyncDiagnosticLog.append(connection, message)
+        }
+
+        fun captureAudioContext(context: Context) {
+            val requestedAt = SystemClock.elapsedRealtime()
+            if (!audioContextBudget.take(requestedAt)) return
+            if (!snapshotPending.compareAndSet(false, true)) {
+                append("Audio context skipped reason=snapshot_busy requestedAtMs=$requestedAt")
+                return
+            }
+            val app = context.applicationContext
+            try {
+                snapshotExecutor.execute {
+                    try {
+                        append("Audio context captured requestedAtMs=$requestedAt capturedAtMs=${SystemClock.elapsedRealtime()}")
+                        com.shilapi.xcertplay.media.AudioOutputDiagnostics.inventory(app).forEach(::append)
+                    } catch (error: Exception) {
+                        append("Audio context unavailable=${error.javaClass.simpleName}")
+                    } finally { snapshotPending.set(false) }
+                }
+            } catch (error: java.util.concurrent.RejectedExecutionException) {
+                snapshotPending.set(false)
+                append("Audio context unavailable=${error.javaClass.simpleName}")
+            }
         }
     }
     data class Snapshot(val controller: CarPlayController, val sink: AndroidMediaSink,
@@ -87,21 +114,26 @@ internal object CarPlayBackgroundSession {
     }
 
     fun bind(candidate: Any, next: Binding) {
+        val replacingOwner = !isOwner(candidate)
+        if (replacingOwner) retryPauseOwner.clear()
         owner = WeakReference(candidate)
         binding = WeakReference(next)
         phone?.let(next.listener::onSessionActive)
         status?.let(next.status)
         if (closing) next.closing()
+        if (replacingOwner) resumeDeferredRetry()
     }
     fun unbind(candidate: Any) {
         if (!isOwner(candidate)) return
         owner = null
         binding.clear()
+        retryPauseOwner.clear()
         sink?.setScreenStreamActiveChangedListener(null)
         // A vanished window cannot hold a resource transition hostage. Reuse the last stable
         // inputs; a later window can submit its own settled size before the next replacement.
         replacementAllowed = true
         installPendingIfReady()
+        resumeDeferredRetry()
     }
     fun isOwner(candidate: Any): Boolean = (if (owner is WeakReference<*>) (owner as WeakReference<*>).get() else owner) === candidate
     fun hasSession(): Boolean = stopAction != null || stopping || closing || pendingPlan != null
@@ -127,6 +159,7 @@ internal object CarPlayBackgroundSession {
         if (plan == null || stopping || releaseFailure != null) return
         if (manual) { retryBudget.manualRetry(); retryStopped = false }
         retry.cancel()
+        deferredRetry = null
         retryBudget.disconnected()
         pendingPlan = plan
         replacementAllowed = true
@@ -146,10 +179,19 @@ internal object CarPlayBackgroundSession {
         install(plan)
     }
 
-    fun pauseRetry(paused: Boolean) {
-        retryPaused = paused
+    fun pauseRetry(candidate: Any, paused: Boolean) {
+        if (!isOwner(candidate)) return
+        retryPauseOwner = WeakReference(if (paused) candidate else null)
         if (paused && retry.isScheduled) { retry.cancel(); deferredRetry = "Recovery after settings" to null }
-        if (!paused) deferredRetry?.let { deferredRetry = null; reconnect(it.first, it.second) }
+        if (!paused) resumeDeferredRetry()
+    }
+    private fun resumeDeferredRetry() {
+        if (!retryPaused) deferredRetry?.let { deferredRetry = null; reconnect(it.first, it.second) }
+    }
+    private fun stopRetryForUserAction() {
+        retry.cancel()
+        deferredRetry = null
+        retryStopped = true
     }
     fun reconnect(reason: String, failure: WirelessStartupFailure? = null) {
         if (closing || stopping || retryStopped || retry.isScheduled || currentPlan == null) return
@@ -178,6 +220,7 @@ internal object CarPlayBackgroundSession {
             }
             override fun onSessionActive(session: AirPlaySession) { deliver {
                 phone = session; active = true; retryAttempt = 0; retry.cancel()
+                deferredRetry = null
                 it?.listener?.onSessionActive(session)
             } }
             override fun onSessionEnded(session: AirPlaySession) { deliver {
@@ -203,11 +246,20 @@ internal object CarPlayBackgroundSession {
             val next = plan.create(listener, { nextStatus -> main.post {
                 if (epoch == generation && !closing && !stopping) {
                     status = nextStatus
+                    // Use the same recovery decision as the connection guide even without a
+                    // window. Otherwise a hidden runtime can keep restarting a conflicted AP.
+                    if (nextStatus is CarPlayStatus.Failed &&
+                        (nextStatus.wifiResetRequired ||
+                            nextStatus.startupFailure == WirelessStartupFailure.HOTSPOT_CONFIGURATION ||
+                            (plan.context.resources.getBoolean(com.shilapi.xcertplay.host.R.bool.config_simple_connection_flow) &&
+                                ConnectionGuide.failure(nextStatus.message).pauseRetry))) {
+                        stopRetryForUserAction()
+                    }
                     binding.get()?.status?.invoke(nextStatus)
                     if (nextStatus is CarPlayStatus.Failed && !nextStatus.wifiResetRequired)
                         reconnect(nextStatus.message, nextStatus.startupFailure)
                 }
-            } }, log::append)
+            } }, log::append, { log.captureAudioContext(plan.context) })
             controller = next.controller; sink = next.sink
             width = next.width; height = next.height; display = next.display
             stopAction = { completion -> stopResources(completion) }
@@ -289,6 +341,8 @@ internal object CarPlayBackgroundSession {
     }
 
     fun stop(completion: () -> Unit = {}) {
+        retryPauseOwner.clear()
+        deferredRetry = null
         if (stopping) { stopWaiters.add(completion); return }
         val action = stopAction
         if (action == null && !closing) { completion(); return }
@@ -320,7 +374,7 @@ internal object CarPlayBackgroundSession {
         replacementAllowed = true
         if (!keepOwner) { owner = null; binding.clear(); stopAction = null }
         active = false; progress = null; phone = null; status = null
-        retry.cancel(); retryPaused = false; deferredRetry = null
+        retry.cancel(); retryPauseOwner.clear(); deferredRetry = null
         retryBudget.manualRetry(); retryAttempt = 0; retryStopped = false
         logs = null; closeOperation = null; releaseFailure = null; closeCompletion = null; stopping = false; closing = false; stopWaiters.clear(); generation++
     }

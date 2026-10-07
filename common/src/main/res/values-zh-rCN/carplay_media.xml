@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_media_previous">上一首</string>
+    <string name="carplay_media_play">播放</string>
+    <string name="carplay_media_pause">暂停</string>
+    <string name="carplay_media_next">下一首</string>
+</resources>

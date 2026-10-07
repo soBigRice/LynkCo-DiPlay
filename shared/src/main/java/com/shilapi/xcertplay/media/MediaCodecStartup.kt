@@ -7,6 +7,7 @@ internal object MediaCodecStartup {
         configure: (T) -> Unit,
         start: (T) -> Unit,
         release: (T) -> Unit,
+        onReleaseFailure: (Throwable) -> Unit = {},
     ): T {
         val candidate = create()
         try {
@@ -15,7 +16,12 @@ internal object MediaCodecStartup {
             return candidate
         } catch (failure: Throwable) {
             // Driver cleanup can fail too; preserve the original configure/start failure.
-            runCatching { release(candidate) }
+            try {
+                release(candidate)
+            } catch (cleanup: Throwable) {
+                if (cleanup !== failure) failure.addSuppressed(cleanup)
+                onReleaseFailure(cleanup)
+            }
             throw failure
         }
     }

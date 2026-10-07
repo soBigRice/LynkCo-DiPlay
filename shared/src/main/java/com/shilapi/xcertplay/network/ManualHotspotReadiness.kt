@@ -22,6 +22,7 @@ internal data class HotspotNetworkSnapshot(
     val apEnabled: Boolean? = true,
     val upstreamInterfaces: Set<String>? = wifiUpstreams,
     val stationIpv4: String? = null,
+    val driverApInterfaces: Set<String> = emptySet(),
 )
 
 internal data class HotspotSelection(val name: String, val index: Int, val address: InetAddress) {
@@ -40,6 +41,9 @@ internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (Stri
     }
     val candidates = snapshot.interfaces.mapNotNull { iface ->
         val owned = snapshot.apInterfaces?.contains(iface.name) == true
+        val driverAp = strictInterfaceSelection && snapshot.apEnabled == true &&
+            snapshot.wifiUpstreams != null && snapshot.upstreamInterfaces != null &&
+            iface.name in snapshot.driverApInterfaces
         val upstream = snapshot.wifiUpstreams?.contains(iface.name) == true
         val address = wirelessHostAddress(iface.addresses.filter {
             it is Inet6Address && it.isLinkLocalAddress || it is Inet4Address && it.isSiteLocalAddress
@@ -50,6 +54,7 @@ internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (Stri
             strictInterfaceSelection && (upstream || snapshot.defaultInterface == iface.name ||
                 iface.name.startsWith("p2p")) -> "lynk_upstream_or_p2p"
             owned -> "platform_ap"
+            driverAp -> "driver_ap"
             snapshot.apInterfaces != null -> "not_platform_ap"
             upstream -> "wifi_upstream"
             snapshot.defaultInterface == iface.name -> "default_network_without_ap_evidence"
@@ -62,8 +67,8 @@ internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (Stri
             "scope=${(address as? Inet6Address)?.scopeId ?: 0} evidence=$reason " +
             "ap=${snapshot.apInterfaces?.let { if (owned) "yes" else "no" } ?: "unobservable"} " +
             "defaultConflict=${owned && (upstream || snapshot.defaultInterface == iface.name)}")
-        if (reason != "platform_ap" && reason != "wireless_non_upstream") null
-        else (if (owned) 100 else 0) to HotspotSelection(iface.name, iface.index, address!!)
+        if (reason != "platform_ap" && reason != "driver_ap" && reason != "wireless_non_upstream") null
+        else (if (owned || driverAp) 100 else 0) to HotspotSelection(iface.name, iface.index, address!!)
     }.sortedWith(compareByDescending<Pair<Int, HotspotSelection>> { it.first }.thenBy { it.second.name })
     if (strictInterfaceSelection) {
         val name = ManualHotspotInterfacePolicy.select(

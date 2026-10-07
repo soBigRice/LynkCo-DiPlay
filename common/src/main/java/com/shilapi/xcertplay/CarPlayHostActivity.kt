@@ -291,10 +291,14 @@ class CarPlayHostActivity : ComponentActivity() {
     private var lastConnectionFailure: String? = null
     private var connectionNeedsAttention = false
     private var connectionStartedAt = android.os.SystemClock.elapsedRealtime()
+    private val connectionWaitSamples = ConnectionWaitSamples()
     private val connectionWaitTick = object : Runnable {
         override fun run() {
             if (!simpleConnectionFlow || isFinishing || isDestroyed) return
             val elapsed = (android.os.SystemClock.elapsedRealtime() - connectionStartedAt) / 1000
+            if (!connectionNeedsAttention && activeScreenStreamTypes.isEmpty()) {
+                connectionWaitSamples.due(elapsed)?.let { logDisplayState("waiting_${it}s") }
+            }
             connectionElapsedView?.text = if (connectionNeedsAttention) "" else
                 getString(R.string.link_elapsed, elapsed) + if (elapsed >= 30) "\n" +
                     getString(if (wirelessEnabled) R.string.link_slow else R.string.link_usb_hint) else ""
@@ -479,6 +483,7 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
             attachSurface(surface)
+            logDisplayState("surface_attached")
             updateVideoLayout(width, height)
             scheduleDisplaySize(width, height)
         }
@@ -498,6 +503,7 @@ class CarPlayHostActivity : ComponentActivity() {
             currentSurface = null
             currentSurfaceTexture = null
             appendLog("Texture surface destroyed")
+            logDisplayState("surface_destroyed")
             return true
         }
 
@@ -746,6 +752,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        logDisplayState("resume")
         mainHandler.removeCallbacks(connectionWaitTick)
         if (simpleConnectionFlow) mainHandler.post(connectionWaitTick)
         val savedNightMode = AirPlayPersistence.loadCarPlayNightMode(this)
@@ -1055,6 +1062,10 @@ class CarPlayHostActivity : ComponentActivity() {
 
     // Hardware navigation belongs to the iPhone-rendered CarPlay UI, not Android View focus.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (simpleConnectionFlow) {
+            CarPlayMediaKeys.observeForegroundKey(event)
+            if (!menuOpen && CarPlayMediaKeys.dispatchForegroundKey(event)) return true
+        }
         if (!menuOpen && AndroidTvInputMode.shouldUseKnobAsPrimaryInput(this) &&
             CarPlayRemoteKeys.dispatch(event, controller)) {
             if (event.repeatCount == 0) {
@@ -1077,6 +1088,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        logDisplayState(if (hasFocus) "window_focus_gained" else "window_focus_lost")
         if (hasFocus) {
             refreshConfiguration(source = ThemeModeDiagnostics.Source.WINDOW_FOCUS)
             applyFullscreenMode()
@@ -1089,6 +1101,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        logDisplayState("pause")
         mainHandler.removeCallbacks(connectionWaitTick)
         nightModeController.pause()
         super.onPause()
@@ -3725,6 +3738,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     CarPlayBackgroundSession.active = true
                     reconnectAttempts = 0
                     reconnectScheduler.cancel()
+                    recoveryPendingAfterMenu = false
+                    failurePendingAfterMenu = null
                     logThemeState(ThemeModeDiagnostics.Source.SESSION_ACTIVE, resources.configuration)
                     syncAirPlayDarkMode(ThemeModeDiagnostics.Source.SESSION_ACTIVE)
                     if (menuOpen) return@runOnUiThread
@@ -3909,6 +3924,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (CarPlayBackgroundSession.hasSession()) { adoptBackgroundSession(); return }
         connectionNeedsAttention = false
         connectionStartedAt = SystemClock.elapsedRealtime()
+        connectionWaitSamples.reset()
         bindRuntimeUi()
         try {
             val plan = createSessionPlan(size)
@@ -4181,7 +4197,7 @@ class CarPlayHostActivity : ComponentActivity() {
             parent.addView(settingsMenu, index, FrameLayout.LayoutParams(-1, -1))
         }
         menuOpen = true
-        CarPlayBackgroundSession.pauseRetry(true)
+        CarPlayBackgroundSession.pauseRetry(this, true)
         gestureOverlay?.visibility = View.GONE
         settingsMenu?.visibility = View.VISIBLE
         safeAreaEditor?.visibility = View.GONE
@@ -4233,7 +4249,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun finishSettingsMenu(prefix: String, reconnect: Boolean) {
         if (!menuOpen) return
         menuOpen = false
-        CarPlayBackgroundSession.pauseRetry(false)
+        CarPlayBackgroundSession.pauseRetry(this, false)
         settingsMenu?.visibility = View.GONE
         gestureOverlay?.visibility = View.VISIBLE
         settingsGestureHint?.text = getString(R.string.open_diplay_settings_hint, gestureFingerCount)
@@ -4254,7 +4270,8 @@ class CarPlayHostActivity : ComponentActivity() {
             startupRetryBudget.manualRetry()
             startupRetryStopped = false
         }
-        if (failure?.startupFailure != null && !reconnect) {
+        if (failure != null && !reconnect && (failure.startupFailure != null ||
+                (simpleConnectionFlow && ConnectionGuide.failure(failure.message).pauseRetry))) {
             createStatusReporter(restartGeneration)(failure)
         } else if (failure?.wifiResetRequired == true && (!reconnect || wirelessEnabled)) {
             createStatusReporter(restartGeneration)(failure)
@@ -4401,6 +4418,7 @@ class CarPlayHostActivity : ComponentActivity() {
             } else {
                 activeScreenStreamTypes.remove(type)
             }
+            logDisplayState("stream_${type}_${if (active) "active" else "stopped"}")
             if (type == SCREEN_TYPE_ALT) {
                 Log.i(ClusterMapPresentation.TAG, "cluster stream active=$active")
                 appendLog("Cluster map: stream active=$active")
@@ -4422,6 +4440,20 @@ class CarPlayHostActivity : ComponentActivity() {
         runOnUiThread {
             setConnectionStage(message)
             appendLog(message)
+        }
+    }
+
+    private fun logDisplayState(point: String) {
+        if (!simpleConnectionFlow) return
+        runCatching {
+            appendLog("CONNECTION_DIAGNOSTIC DISPLAY_STATE point=$point elapsedMs=${(SystemClock.elapsedRealtime() - connectionStartedAt).coerceAtLeast(0)} " +
+                "activityStarted=$isActivityStarted windowFocus=${hasWindowFocus()} " +
+                "surfaceValid=${currentSurface?.isValid} textureAvailable=${videoView?.isAvailable} " +
+                "viewShown=${videoView?.isShown} size=${videoView?.width}x${videoView?.height} " +
+                "streams=${activeScreenStreamTypes.sorted()} runtimeActive=${CarPlayBackgroundSession.active} " +
+                "headUnitInteractive=${getSystemService(android.os.PowerManager::class.java)?.isInteractive} " +
+                "headUnitLocked=${getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked} " +
+                "phoneLockState=not_observable")
         }
     }
 

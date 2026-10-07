@@ -35,3 +35,32 @@ result:;
     if (result_array != NULL) (*env)->SetIntArrayRegion(env, result_array, 0, 3, values);
     return result_array;
 }
+
+// SIOCGIWMODE is a getter: distinguish a real AP from a station retaining its old IP.
+JNIEXPORT jintArray JNICALL Java_com_shilapi_xcertplay_network_LegacyHotspotNative_queryMode(JNIEnv *env, jobject self, jstring interface_name) {
+    (void) self;
+    jint values[2] = { EINVAL, 0 };
+    if (interface_name == NULL) goto result;
+    const char *name = (*env)->GetStringUTFChars(env, interface_name, NULL);
+    if (name == NULL) return NULL;
+    const size_t length = strlen(name);
+    if (length > 0 && length < IFNAMSIZ) {
+        int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        if (fd < 0) values[0] = errno;
+        else {
+            struct iwreq request;
+            memset(&request, 0, sizeof(request));
+            memcpy(request.ifr_name, name, length);
+            if (ioctl(fd, SIOCGIWMODE, &request) == 0) {
+                values[0] = 0;
+                values[1] = request.u.mode;
+            } else values[0] = errno;
+            close(fd);
+        }
+    }
+    (*env)->ReleaseStringUTFChars(env, interface_name, name);
+result:;
+    jintArray result_array = (*env)->NewIntArray(env, 2);
+    if (result_array != NULL) (*env)->SetIntArrayRegion(env, result_array, 0, 2, values);
+    return result_array;
+}

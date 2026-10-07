@@ -192,6 +192,33 @@ class CarPlayHostSettingsTest {
         assertEquals(1, field("restartGeneration"))
     }
 
+    @Test @Config(sdk = [28])
+    fun lynkHotspotConflictWhileSettingsIsOpenDoesNotRestartOnCancel() {
+        val resources = org.mockito.Mockito.spy(activity.resources)
+        org.mockito.Mockito.doReturn(true).`when`(resources).getBoolean(R.bool.config_simple_connection_flow)
+        org.robolectric.util.ReflectionHelpers.setField(activity, "mResources", resources)
+        assertTrue(activity.resources.getBoolean(R.bool.config_simple_connection_flow))
+        attachController()
+        invoke("openSettingsMenu")
+        report(CarPlayStatus.Failed("LocalOnlyHotspot incompatible with existing shared hotspot"))
+        invoke("cancelSettingsEdits")
+        assertEquals("Closing settings must not act as explicit retry", 0, field("restartGeneration"))
+    }
+
+    @Test @Config(sdk = [28])
+    fun successfulConnectionDuringSettingsClearsTheOldFailureAndRecoveryRequest() {
+        val controller = attachController()
+        invoke("openSettingsMenu")
+        report(CarPlayStatus.Failed("Old transient failure"))
+        val listener = activity.javaClass.getDeclaredMethod("createSessionListener", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(activity, 0) as AirPlaySessionListener
+        listener.onTransportError("Old transport error")
+        listener.onSessionActive(mock(AirPlaySession::class.java))
+        invoke("cancelSettingsEdits")
+        assertSame(controller, field("controller"))
+        assertEquals("Do not interrupt a recovered session", 0, field("restartGeneration"))
+    }
+
     @Test fun transportLossWhileMenuIsOpenRecoversOnCancel() {
         attachController()
         invoke("openSettingsMenu")

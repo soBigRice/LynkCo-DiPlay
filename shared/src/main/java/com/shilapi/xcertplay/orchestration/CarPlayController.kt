@@ -599,6 +599,7 @@ class CarPlayController(
     }
 
     fun recordAudioFocusDiagnostic(message: String) = connectionDiagnostic("Audio-focus $message")
+    fun recordMediaControlDiagnostic(message: String) = connectionDiagnostic("Media-control $message")
 
     override fun close() {
         synchronized(wirelessResourceLock) {
@@ -2703,6 +2704,9 @@ class CarPlayController(
             }
             connectionDiagnostic("failureClass=${diagnosticFailureClass(error)} causeClass=${error.cause?.let(::diagnosticFailureClass) ?: "none"}")
             val causes = generateSequence(error) { it.cause }.toList()
+            causes.filterIsInstance<WirelessStartupException>().firstOrNull()?.let {
+                connectionDiagnostic("wireless failure reason=${it.reason} configuredMode=${config.wirelessHotspotMode}")
+            }
             val handshakeTimeout = causes.filterIsInstance<com.shilapi.xcertplay.transport.Iap2HandshakeTimeoutException>().firstOrNull()
             if (handshakeTimeout != null) {
                 onStatus(CarPlayStatus.HandshakeTimedOut(handshakeTimeout.stage), if (wireless) wirelessGeneration.get() else null)

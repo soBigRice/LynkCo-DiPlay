@@ -1316,3 +1316,413 @@ test17 的全部代码已本地提交为 `6ed8b4c`。test18 验证：现有 `Air
 尚未观察 iPhone 实际呈现新图，不能将包内图片检查扩张为手机端验收。
 验证证据位于 `.private/verification/test18/`；构建进程与项目生成缓存清理，保留 test17/test18
 安装包和必要证据。图标改动纳入用户本次“提交全部代码”的本地提交范围，不推送。
+
+## test19：App 名称和桌面图标（2026-10-06）
+
+领克包的应用名称改为用户指定的 `Lynk&Co_CarPlay`。除了默认 `values`，同时覆盖
+`values-zh-rCN` 和 `values-uk` 的 `app_name`：Android 会优先匹配语言限定资源，
+只覆盖默认值仍会从 common 库读到 DiPlay。连接前台通知改为读取 `app_name`；原版资源不变。
+保留首页、关于和许可证中的“基于 DiPlay 修改”及上游链接。
+
+桌面复用 test18 已规范化的官方黑色品牌图 `res/raw/ic_car_home.png`，没有再次修改字形。
+方形前景的四边按比例内缩 16%，原图中占 168/192 的字标在 108dp 自适应画布内占约
+64.26dp，完整处于 66dp 安全区；白色背景独立成层。
+采用 [Android 官方 adaptive icon 规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)，
+供 Android 9 桌面自行应用圆形、圆角等遮罩，没有预先裁掉品牌内容。
+此图标是本项目的领克品牌入口，不宣称存在领克官方发布的同名 CarPlay App。
+
+Lynk manifest 单独覆盖 `icon` / `roundIcon`，不改 common 的 `ic_carplay`，也不改 test18
+已交付的 CarPlay 内返回图标与用户自定义图标优先级。App 桌面只使用默认品牌资源，
+用户选取的 CarPlay 返回图片不会改变桌面图标。版本 test19 / code37；包名、签名、
+认证、配对、连接与媒体处理保持。
+
+首次使用固定 dp、非方形 LayerDrawable 前景时，API28 桌面出现偏移裁切；实际截图已否定
+该做法。改用现有方形 PNG 和比例 inset 后，重新打包/覆盖安装，完整字标正常居中。
+以后修改自适应图标先检查前景固有宽高比及系统实际遮罩，不以源图片预览代替桌面检查。
+
+验证：独立包构建成功；现有 `LynkOsNProfileTest` 3 项通过，包括 API28 前台服务启动。
+最终 APK 中全部应用语言标签均为 `Lynk&Co_CarPlay`；minSdk28、包名、签名与旧包一致，
+两份认证输入、13 个 native 库和 CarPlay 返回图标逐字节一致。API28 模拟器覆盖 test18
+后的既有偏好文件在首次启动前 hash 一致；最终图标布局又覆盖安装验证，名称/字标完整，
+应用首页正常打开且保留 DiPlay 署名，crash buffer 为空。模拟器没有真实 iPhone，
+本轮不增加有线/无线实车验收结论，连接行为沿用用户已确认的实现。
+
+交付 `dist/LynkCo-CarPlay-test19.apk`：47,587,191 bytes，SHA-256
+`ea4f50aa9f194ec3aeb4d964fd7a100709e8d3243ad9ebc5d4fdc9d50f349c6c`。
+证据保存在 `.private/verification/test19/`。本轮名称及桌面图标改动保留在工作区，
+等待用户外观验收后本地提交；不推送。关闭本轮模拟器并清理项目生成缓存，保留安装包和证据。
+
+
+## test20：媒体释放与重连恢复审查修复（2026-10-06）
+
+用户授权修复只读审查中通过故障回放确认的 4 项问题并生成本地实车包。保持 test19 名称、
+图标，以及已确认有线实现的画质、帧率、音频参数、认证、包名/签名和配对存储。
+
+1. **连续媒体流替换**：`AndroidMediaSink` 的音频、视频、麦克风槽位记录
+   `allOf(previousTail, worker.completion)`。A 释放尚未结束时，取消等待中的 B 不能让 C
+   提前占用 native 输出。前驱释放失败继续传播；同 ID/同格式音频重复 SETUP 保留已有启动安排，
+   避免把包含自身 completion 的 tail 作为新启动依赖。
+2. **音频初始化的清理失败**：`MediaCodecStartup` 保留原 configure/start 异常，附带清理异常，
+   并通过 `onReleaseFailure` 记录到 renderer 的关闭结果。清理成功的启动失败仍允许后继，
+   清理失败则不能对 runtime 报告已成功释放。
+3. **设置窗口销毁后的重连**：暂停归属当前窗口的弱引用；`unbind` 和新窗口接管释放旧暂停，
+   旧窗口的迟到关闭回调不能解除新窗口的暂停。停止会话清除暂停；成功连接清除延期重试和
+   Activity 暂存故障，防止关闭设置时打断已经自行恢复的会话。
+4. **需用户处理的失败停止自动重试**：领克后台 `Failed` 与连接提示复用
+   `ConnectionGuide.failure().pauseRetry`；取消当前定时器、清除延期请求并设置 `retryStopped`，
+   无 Activity 时同样生效。热点冲突、权限等错误不再后台循环；设置取消不充当显式重试。
+   用户修复后仍可手动重试，普通瞬时 RFCOMM/socket 错误保留重连，其他 target 保留原策略。
+
+回归用例位于 `AudioOutputLifecycleTest`、`VideoOutputLifecycleTest`、
+`TelephonyMicrophoneTest`、`AudioCodecLifecycleTest`、`MediaCodecStartupTest`、
+`CarPlayRuntimeRecoveryTest` 和 `CarPlayHostSettingsTest`。采用受控 native 释放阻塞/失败、
+API28/29 本地运行环境及真实调用顺序，不通过降低画质、延时猜测或删除配对换取通过。
+
+打包采用基线 `e8f4caa` 加 test19 品牌资源和本节修复的独立源码快照；工作区此时另有并行任务
+正在修改官网/应用更新，不纳入本次 APK，也不回滚它们。构建源码覆盖清单与 SHA-256、
+可重建覆盖文件保存在 `.private/verification/test20/source-manifest.json` 和
+`source-overrides.tar.gz`，认证输入仍从原私有路径显式提供，不进入源码快照。
+
+最终验证：shared 797 项（796 通过、1 项原有跳过）、common 602 项、mobile/Lynk 32 项；
+合计 1,430 通过、1 跳过，0 失败/错误。第一轮全量后补齐设置期间自行恢复/热点错误的回归，
+再次执行受影响的 common 全量、Lynk 全量与 lint，全部通过；shared 代码未再变化，沿用有效结果。
+Lint 0 错误、12 警告，规则及计数与审查基线一致。源码敏感文件扫描、最终 diff 检查通过。
+
+独立包 `dist/LynkCo-CarPlay-test20.apk`：47,572,575 bytes，版本 code38，SHA-256
+`cd4794642bef442d41ed86c84430241f3817be2449558fe07113a8240a546d64`。包名 `com.shihab.diplay.lynk`、minSdk28、所有语言名称
+`Lynk&Co_CarPlay`、签名和两份既有认证素材核对通过，可覆盖安装 test19。CarPlay 返回图标
+逐字节相同；13 个 native 库齐全，其中 9 个本地 JNI 库因独立目录重建只有 ELF build-id 改变，
+去除该标识后与 test19 完全相同，另 4 个字节相同。未混入并行更新功能。
+
+证据见 `.private/verification/test20/`；本轮不启动模拟器，结束本轮 Gradle 进程并删除独立
+构建目录，仅保留安装包、源码覆盖快照及验证报告。共享工作区缓存由并行任务共用，不擅自
+删除。无线连接和实车长时运行仍待用户正常用车时确认；自动验证不能扩大 test17 有线验收范围。
+本次代码留在工作区待用户验收，没有提交、推送或公开发布 APK。
+
+## 上游通用修复提取（2026-10-06）
+
+用户授权只提取有用修复，不接入新增比亚迪专属功能。审核基准为上游
+`e6477e1741ad91a18452f0099a432dde63311a19`；保留当前领克适配及工作区已有 test19/test20
+修改，没有整分支合并，没有导入上游 Activity/媒体所有权重构、BYD 通话/控制器设置或热点策略。
+
+| 来源 | 当前调用链与行为 | 回归保护 |
+| --- | --- | --- |
+| [f7af3286](https://github.com/shihabal3amri/DiPlay/commit/f7af3286ea28b73e7219e50f9aa4fa3128de9eec) | `IphoneUsbMux` → `UsbMuxFrameBuffer`：有效 RX TCP 回复含负载时也允许四字节尾部恢复；只在下一帧长度、magic、TCP 头长度和端口均有效时跳过。正常分片、负载、TCP options 保留，任意垃圾、八字节尾部和非法帧仍拒绝。 | `UsbMuxFrameBufferTest`、`UsbMuxIssue100RegressionTest`；包括完整 USB host/reader 回放及 40/396/954 字节回复。 |
+| [3868eea3](https://github.com/shihabal3amri/DiPlay/commit/3868eea38ef8be7a8a00d3faa047fbe06b1c5bd2) + [0766a457](https://github.com/shihabal3amri/DiPlay/commit/0766a457b701e9cdfd0673fda2b60df196f96a7d) | `CarPlayMediaEngine.microphoneConfig` → `MicrophoneConfig` → `MicrophoneUplink.sendFrame` → `MicrophonePacketizer`：已观察的 Siri `0x20000000` 每 20 ms 时间戳前进 480；通话 `0x40000000` 与未观察格式仍为 960。Opus 采集/编码保持 48 kHz、960 samples，PCM 保持原采样率；密钥、载荷、序号与 nonce 不变。 | `MicrophonePacketizerTest`：连续加密包解密校验、Siri/通话/未知格式及 PCM；既有麦克风/媒体所有权用例继续保护释放行为。 |
+| [4b5e0bb7](https://github.com/shihabal3amri/DiPlay/commit/4b5e0bb7e59e5fe39cdca5e4dacde50daf8ce5bc) + [1e8f7cce](https://github.com/shihabal3amri/DiPlay/commit/1e8f7cce2ed209bd5e18e67da382c738245856e9) | `AirPlaySession.acceptEvent` 仅对 event socket 开启 `TCP_NODELAY`，避免小 HID/event 写入被 Nagle 合并等待。事件加密、命令格式、媒体传输与会话关闭沿用当前实现。 | 既有 AirPlay HID、会话、媒体和领克按键回归；没有测量实车触摸延迟。 |
+
+Siri 的 24 kHz 时钟是上游抓包观察到的私有协议例外，不能外推为所有 Opus 或 16 kHz 格式；
+采集帧大小与 RTP 时间戳步长分开，避免为修时间戳改变音质或采样参数。
+
+本节源码包含已提交官网更新与当前未提交 test19/test20 修改；验证采用独立源码副本，
+不覆盖现有 `dist/LynkCo-CarPlay-test20.apk`。验证证据保存在
+`.private/verification/upstream-fixes-20261006/`，包括来源补丁、本次范围补丁、源码 hash、
+JUnit XML、lint 报告与构建日志。
+
+最终验证：shared 811 项（810 通过、1 项原有 macOS wildcard-bind 跳过）、common 612 项、
+mobile/Lynk 33 项，合计 1,455 通过、1 跳过，0 失败/错误；包含领克显式 PLAY/PAUSE、
+API28/29 媒体所有权、连续资源替换和重连恢复。领克应用 lint 0 错误、12 警告，规则与数量
+与 test20 记录一致。`assembleLynkDebug` 源码构建成功（4m8s）；没有提供私有认证素材，
+该验证 APK 不作为实车包交付。最终运行源码逐文件 hash 与受测副本一致，本轮目标外的已有
+工作区修改保持；`git diff --check` 通过。
+
+本轮未启动模拟器或车辆，未测量触摸延迟，未扩大已有实车验收。结束后清理本轮独立构建
+目录及进程，只保留必要证据。代码留在工作区待用户验收，没有提交、推送或公开发布。
+
+## test21：通用修复独立包与 Android9 覆盖安装（2026-10-06）
+
+用户授权将当前本地实现打成新包并测试，再自行安装到车机。版本
+`0.2.12-lynk-osn2-test21` / code39；源码快照基于 `e086732` 加当前工作区的 test19/test20
+品牌与生命周期修改，以及本轮三组上游通用修复。包含当前已提交的应用更新功能，没有
+新增 BYD 功能，没有整分支合并、升级依赖、提交、推送或上传 APK。
+
+`dist/LynkCo-CarPlay-test21.apk` 为 47,613,679 bytes，SHA-256
+`3220e69148dbbb0d1ac28649f22e70766eb7cac6c448baf10a8a052fab62e6bc`。
+包名 `com.shihab.diplay.lynk`、minSdk28，所有语言的 App 名称为 `Lynk&Co_CarPlay`；签名
+与已确认的 test17、上一包 test20 一致。两份认证输入与原私有输入及 test20 逐字节相同，
+CarPlay 返回图标不变。13 个 native 库齐全；9 个本地 JNI 库只有 ELF build-id 改变，
+去除该标识后与 test20 相同，另外 4 个字节相同。DEX 中已确认本轮修复的时间戳字段与
+USBMUX/事件连接诊断；认证素材只通过原显式私有路径提供，不进入源码快照。
+
+验证复用上一轮 1,455 通过、1 原有跳过的全量回归：Android 源码逐文件 hash 核对，只有
+本节版本号改变；本轮重跑最终版本的 mobile/Lynk 33 项，全通过。领克 lint 0 错误、
+12 个既有警告，规则及数量与上一轮一致。`assembleLynkStandaloneDebug` 构建成功（1m56s），
+最终 APK 从通过构建的独立目录核验后复制，工作区运行源码与受测快照一致。
+
+API28 / arm64 Android9 模拟器采用 `read-only`、不读写快照运行：
+
+- 先安装并启动 test20，再覆盖安装 test21。首次启动前，既有 1 份偏好 XML 的 hash 完全一致。
+- 实际查看首页与 USB 等待页；设置、环境检测可用。环境检测显示本地认证组件 Ready，
+  密钥与证书匹配；这不证明 iPhone 已接受认证。
+- USB 入口接受系统 VPN 提示后进入等待设备；设置期间 ServiceRecord 保持，返回连接后
+  继续同一后台会话。没有连接实际 USB 设备。
+- 从连接页保存日志，UTF-8 读回含 test21 版本；分享选择器打开后返回，没有发送给任何应用。
+- 取消后实际回到首页；前台 Activity 为 `DiPlayActivity`，`DiPlaySessionService` 已结束，
+  crash buffer 为空。UI 驱动初次误用设置/导出返回路径，调整后继续检查，没有修改设置；
+  页面切换时 `uiautomator dump` 未生成 XML，取消结果用截图、Activity 和服务列表补核。
+  后续 UI 检查须校验文件存在及 XML 结构，不能只凭工具退出码判断抓取成功。
+
+证据、签名/包检查、源码 hash、可重建工作区覆盖文件、JUnit XML、lint 与安装/界面记录
+位于 `.private/verification/test21/`。完成后关闭本轮模拟器、构建进程并删除独立构建目录，
+保留本地 APK 与必要证据；不删除其他任务的共享缓存或旧包。
+
+本轮可交付覆盖安装测试包，仍待实车检查有线首连、触控、Siri/通话、拔插重连和无线。
+模拟器没有真实 iPhone/领克蓝牙与热点环境，不扩大 test17 的实车验收范围。
+
+### 2026-10-06：卸载小八后仍广播的 `car` 热点（待实车定位）
+
+用户补充：曾安装小八开发的 CarPlay 应用，卸载后 iPhone 重新搜索仍能实时发现 `car`。
+这是仍有热点广播的证据，不是仅有已保存网络；尚未确认广播源、AP 模式或保持热点的服务。
+
+当前领克版已使用 `LocalOnlyHotspotManager` → API28 `startLocalOnlyHotspot` 自动创建临时热点。
+Android9 r1 的 `WifiServiceImpl.startLocalOnlyHotspot` 会在系统共享热点活动时返回
+`ERROR_INCOMPATIBLE_MODE`；请求者死亡时会注销请求，最后一个请求结束后关闭临时热点。
+因此长期残留广播更像系统共享热点或其他服务维持的 AP，这是待核实推断，不能仅凭 SSID
+归因到小八，也不能把此前日志的 generic error 改写为已证实的热点冲突。
+来源：[Android9 Wi-Fi 服务](https://android.googlesource.com/platform/frameworks/opt/net/wifi/+/android-9.0.0_r1/service/java/com/android/server/wifi/WifiServiceImpl.java)、
+[临时热点接口](https://developer.android.com/reference/android/net/wifi/WifiManager#startLocalOnlyHotspot(android.net.wifi.WifiManager.LocalOnlyHotspotCallback,%20android.os.Handler))。
+
+本次最初建议保持 `car` 原状，用 test21 尝试一次无线并导出诊断，检查 `AP sources` 的 state/mode/
+failure/iface、创建回调错误码与网卡拓扑。必要时连接已授权的实车 ADB，读取当前 Wi-Fi/
+tethering 状态及固件支持的控制接口，再判断定向关闭遗留共享热点或复用真实可用 AP。
+普通版读取系统热点密码可能被 Android9 拒绝，不能猜测凭据或误用上联网卡；不启用 BYD
+集成来绕过领克能力判断。当前 `CarHotspotTethering` 只请求开启已保存系统热点，不实现关闭，
+test21 未新增遗留热点清理功能。本次未连接车机、未变更车机设置，尚未证明无线恢复。
+
+## test22：按 11:24 实车日志修复焦点恢复与热点识别（2026-10-06）
+
+输入为用户提供的 `DiPlay-20261006-112456-731-5006744612018139067.txt`，版本为 test21。
+设备为 QUALCOMM CS11 / API28，继续保持现有领克适配及此前提取的三组上游通用修复。
+不合并 BYD 功能，不改变认证、清晰度、帧率、USB 协商和用户保存的设置。
+
+### 证据与判断边界
+
+- 最新有线会话在 11:19:41.798 发送启动请求，48.293 收到 AirPlay TCP，49.802 输出首帧，
+  后续存在实际呈现计数。用户补充自己通常看到等待提示就立即锁屏解锁，因此没有
+  「持续解锁等待仍不出画面」的对照。不能把锁屏解锁判断为必要条件，本轮不改视频链路。
+- 11:20:06.055、06.648、28.434 的媒体焦点请求返回 0（FAILED）；音频 PCM 非零、写入
+  无错误、播放头推进、系统媒体音量 13/未静音且输出到 BUS。领克协调器在焦点被拒时
+  主动把音轨音量设为 0，11:21:08.373 的新音轨获焦点 1（GRANTED）。期间两次音频映射
+  开关和设置取消未提交，不能将恢复归因于设置已改变。具体哪个车机服务拒绝焦点未知。
+- 11:18:31 的无线尝试为 MANUAL，AP state13/true，但 `getTetheredIfaces=[]`；wlan0
+  有本地地址，上网网卡为 eth0.11。旧选择逻辑因为平台列表非 null 且不包含 wlan0 而拒绝，
+  15 秒后超时。这是平台共享接口列表不能充分观察厂商 AP 的兼容缺口；日志还没有驱动
+  模式证据，不能直接认定 wlan0 一定是可用热点。11:19:18 的第二次尝试在 109ms 内
+  失败，报告只有异常类型，没有足够细节确认具体配置原因。
+- 导出时 AP state11/false，wlan0 仍保留地址，进一步说明网卡 up/有地址不等于热点正在
+  工作。本次没有自动临时热点创建记录，也不能把 MANUAL 失败写成 LOHS 冲突已确认。
+  `car` 的广播源、持有服务、密码仍未知；本轮不尝试关闭或改写它。
+
+### 实现与保护范围
+
+`AudioFocusCoordinator` 的领克请求使用 `setAcceptsDelayedFocusGain(true)`。系统返回
+DELAYED 时保持静音并保留原请求，手机的播放状态更新不会撤销它；系统回调 GAIN 后
+直接恢复已有音轨音量。FAILED 请求不再被当作有效授权缓存，后续真实音轨可重新申请。
+最后音轨释放时注销请求，代号拦截旧回调；不增加定时抢焦点、强制音源或系统音量写入。
+普通版和显式禁用焦点的行为保持。该修复依赖车机遵守 Android 延迟焦点契约，实车是否
+将拒绝转为 DELAYED 仍待验证，不能仅凭单元测试断言首次无声已在车机消失。
+来源：[Android AudioFocusRequest.Builder](https://developer.android.com/reference/android/media/AudioFocusRequest.Builder#setAcceptsDelayedFocusGain(boolean))。
+
+`ManualHotspotInterfaces.sample` → `LegacyHotspotRadio.readMode` → `local_hotspot_radio.c`
+仅在 API28/领克/AP 明确开启时读取候选接口的 `SIOCGIWMODE`，只有 `IW_MODE_MASTER=3`
+可成为额外 AP 证据。接口来自实际枚举且名字受限，原生 socket 每次关闭，不使用 shell、
+root、模式设置或热点配置写入。NDK 28.2.13676358 的 Linux Wireless Extensions UAPI
+头文件核对了命令、mode 字段和枚举；不支持、权限拒绝、未知值均记录原因并保持未确认。
+
+`ManualHotspotReadiness` 仅领克严格模式接受上述证据，还要求上游列表可读取；保留
+上联网卡、默认网络、STA 地址别名、P2P、地址缺失及歧义排除，连续三次稳定采样和
+发布前复核不变。不因 AP 开关或普通 WLAN 地址直接放宽接口选择；原版策略保持。
+驱动是否在 CS11 支持此只读查询尚未实测，SSID/密码配置和蓝牙配对仍是后续连接前提。
+
+完整回归另发现已有的环境采样交接竞态：`CarPlayBackgroundSession.obtainLogs` 使用
+SynchronousQueue，采样任务在 finally 清除 pending 后、worker 再次取任务前，新会话
+可能提交失败并抛 `RejectedExecutionException`，阻止启动。换成容量为 1 的交接队列，
+继续由 pending 限制重复采样；保留单线程、空闲 5 秒退出，不增加连接延时。
+`EnvironmentSnapshotSchedulingTest` 阻塞 worker 并提交新会话，旧实现明确失败，修复后
+连同会话恢复/诊断测试共 11 项通过。此竞态来自测试证据，不能归因成实车锁屏现象的根因。
+
+### 验证与交接
+
+先在隔离副本运行新回归：焦点原实现 8 项中 3 失败，热点原选择逻辑 22 项中 1 失败，
+分别对应延迟请求丢弃/拒绝请求误复用和平台空列表拒绝真实 AP。实现后定向 38 项通过，
+包含音轨实际音量调用、释放 pending 请求、迟到 GAIN 隔离、驱动错误和错误网卡保护。
+首次完整验证 shared 821 项（820 通过、1 原有 macOS wildcard-bind 跳过），common 612 项
+中上述环境采样竞态失败 1 项；补充确定性复现并修复，未忽略或放宽失败断言。
+最终 common 613 项、mobile/Lynk 33 项全部通过，shared 结果对应最终源码且未再改变；
+合计 1,466 通过、1 原有跳过、0 失败/错误。领克 lint 0 错误、12 既有警告，规则和数量
+与 test21 一致。完整命令 `:shared:testDebugUnitTest :common:testDebugUnitTest
+:mobile:testLynkDebugUnitTest :mobile:lintLynkDebug :mobile:assembleLynkStandaloneDebug`
+成功（3m3s），738 份 Android/构建文件与受测副本 hash 一致，`git diff --check` 通过。
+
+`dist/LynkCo-CarPlay-test22.apk`：版本 `0.2.12-lynk-osn2-test22` / code40，47,613,683 bytes，
+SHA-256 `5508bff14ee63d41398f7a8a4f1fc2ddcedf23a328039c4b74c573f82ccf1bee`。
+包名 `com.shihab.diplay.lynk`、minSdk28；签名、两份认证素材、权限和 CarPlay 返回图标
+与 test21 相同。三种 ABI 均构建成功并导出新增 JNI getter；去除 ELF build-id 后，
+13 个 native 库中仅三份 `liblocal_hotspot_radio.so` 有代码变化，其余相同。
+
+API28 / arm64 模拟器以 read-only、禁用快照运行：先安装启动 test21，再覆盖 test22，
+首次启动前两份既有偏好文件逐字节保留；实际查看首页、USB 等待页，点击取消后回到首页，
+会话服务已移除，crash buffer 为空，没有环境采样任务拒绝。没有连接真实 iPhone 或车机，
+模拟器结果不能证明 CS11 驱动模式查询和延迟焦点回调受支持。
+
+证据在 `.private/verification/test22/`，包括复现失败、最终 JUnit、lint、源码 hash、
+签名/包核验和覆盖安装记录。收尾关闭本轮模拟器、删除独立构建目录，保留 APK 与必要
+证据；未提交、推送或发布，待用户实车验收。已有工作区修改均保留。
+
+实车最小复测：停车后覆盖安装；保持手机解锁，等待约 15 秒观察首帧；首次播放不改设置，
+确认是否有声，再检查暂停/继续与一次拔插重连。无线保持既有配置尝试一次即可；仍失败
+时从当前版本导出日志，优先看焦点返回/回调与 `hotspot driver`，不要反复启动车辆或
+通过工程模式强制切换 USB/热点。自动验证不等于实车验收，本轮没有车机 ADB 连接。
+
+## test23：一次导出保留更多故障上下文（2026-10-06）
+
+用户要求减少反复装包、试开关的次数。在 test22 修复基础上补充只读诊断，保持认证、签名、
+连接/重试、音频焦点和音量策略、分辨率/编码与热点控制行为。未增加系统权限或 BYD 功能。
+
+### 新增信息与调用链
+
+- `AudioFocusCoordinator.diagnosticState` 在请求、回调、释放和原有音频统计点记录请求返回值、
+  是否等待/获得焦点、请求代号和等待时长、应用要求的音轨音量及应用失败数。该音量是应用
+  意图，不代表车机扬声器实际响度；结合已有 PCM 非零统计、写入/播放头和 BUS 路由分析。
+- 领克焦点事件 → `CarPlaySessionPlan.create` 回调 → `Logs.captureAudioContext`：只提交后台任务，
+  复用单线程环境采样器，最多一个待执行交接位置。每个 Logs 会话最多 12 次、间隔至少 2 秒；
+  环境采样正忙则记 skipped，记录触发和实际读取时间，不将异步结果伪装成事件瞬间的状态。
+- `AudioOutputDiagnostics.inventory` 读取应用自身 play-audio AppOp、系统 mode/静音/音量、
+  speaker/SCO、输出采样率/缓冲能力和最多 8 个输出设备的类型/采样率/通道数/编码。
+  不记录设备名、蓝牙地址、曲名、PCM 或密码。平台过滤后的活动播放列表只统计 usage 数量，
+  无法据此判断是谁占用焦点；空设备能力数组表示未限定，并非不支持。
+- `CarPlayHostActivity.logDisplayState` 记录 Surface 绑定/销毁、窗口焦点、前后台、视频流状态；
+  等待阶段按 5/15/30/60 秒记录窗口、Surface、TextureView 尺寸及**车机自身**亮屏/锁屏状态。
+  `VideoDecoder` 的 MediaCodec 回调另外记录首次实际呈现；原有首帧日志是释放到 Surface，
+  二者不能混淆。iPhone 锁屏状态不可直接读取，不能把车机锁屏值当作手机状态。
+- `ManualHotspotManager` 在原校验之前记录配置可读性、名称是否匹配的布尔值及信道/频段/安全
+  类型；失败保留固定原因码。旧错误中含网络名称时会被整行脱敏，这次修正诊断缺口，不放宽
+  脱敏。`CarPlayController` 保留类型化失败和配置模式；配置模式不等同于系统实际采用的模式。
+  `HotspotDiagnostics` 对已由驱动确认的 AP 接口补充只读频率查询，失败不能变成 AP 证据。
+- `ConnectionEnvironmentSnapshot` 汇总当前 sink 焦点状态、上述音频环境、蓝牙 profile 状态和
+  Apple USB 设备/端点能力。仍通过现有单份报告导出 USB/无线历史，不要求用户分别收集文件。
+
+隐私过滤、每段 512 KiB/8 段轮转和异步日志队列继续生效。读取失败记录 exception 类型或
+unknown，不尝试 root、调用私有车控服务、关闭遗留热点或更改系统音源。普通应用无法确认
+其他应用的焦点拥有者及热点创建者；更多日志有助于缩小原因，但不能保证下一次即可修复。
+
+来源（核查 API28 兼容性与当前 SDK，2026-10-06）：
+[AudioDeviceInfo 能力](https://developer.android.com/reference/android/media/AudioDeviceInfo)、
+[AudioManager 播放配置](https://developer.android.com/reference/android/media/AudioManager#getActivePlaybackConfigurations())、
+[AOSP AppOps 名称](https://android.googlesource.com/platform/prebuilts/fullsdk/sources/android-29/+/refs/heads/main/android/app/AppOpsManager.java)。
+play-audio 使用公开只读 `checkOpNoThrow` 检查本应用 UID；其字符串常量未暴露在公开 SDK，
+使用 AOSP 固定操作名，OEM 拒绝/不支持保留 unavailable。
+
+### 验证状态
+
+目标用例覆盖延迟焦点状态、诊断观察者异常隔离、设备列表上限及只读性、隐藏网络名称后仍保留
+热点错误码、等待采样节点和现有脱敏规则。首次编译修正三处 API/作用域引用；随后测试识别
+Robolectric 4.17 的 AudioDeviceInfoBuilder 在 API28 未初始化能力数组，补全 fixture，未放宽断言。
+完整回归 1,474 项通过、1 项原有 macOS 跳过，零失败；lint 零错误，12 个既有警告与 test22
+一致。模拟器检查发现画面事件最初只进入通用历史，随后为事件补上既有
+`CONNECTION_DIAGNOSTIC` 前缀，使其也进入对应 USB/无线历史；补充分类断言，最终重新运行
+8 项诊断/调度测试和 33 项领克应用测试、lint 与打包，全部通过。没有调整画面或连接策略。
+
+最终包 `dist/LynkCo-CarPlay-test23.apk`：`0.2.12-lynk-osn2-test23` / code41，49,058,184 bytes，
+SHA-256 `6fce70322f18675b0f9779070e91843aef91df915939c17d27c09c793592f14c`。
+包名仍是 `com.shihab.diplay.lynk`、minSdk28；签名、权限、两份认证素材与 CarPlay 返回图标
+保持。13 个 native 库去除 ELF build-id 后与 test22 相同，最终增量重打包的库字节也与本轮
+首次包一致。构建输入和运行代码 hash 已与工作区核对。
+
+最终 APK 在 API28 / arm64 模拟器覆盖 test22，首次启动前 3 份既有设置文件 hash 完全一致。
+实际查看首页与有线等待页；USB 专属日志保存 5 秒/15 秒画面状态。通过界面导出 37,227-byte
+报告，读回确认新版本、音频清单、可观察性边界、USB 画面历史及完整结束标记；未分享给外部
+应用。导出沿用既有设置页，返回 CarPlay 后取消连接，首页恢复、会话服务已移除、crash buffer
+为空。模拟器没有真实 iPhone 音频/画面与车机无线链路，这些仍待实车确认。
+
+证据保存在 `.private/verification/test23/`，保留必要 JUnit、lint、源码快照/差异、APK 核验及
+实际导出样本；收尾关闭本轮只读模拟器，删除独立构建目录，核对无残留测试 JVM。未提交、
+推送或发布；既有其他工作区修改保留。下次直接装 test23，停车后保持手机解锁等约 30 秒，
+首次播放先不改设置；仍异常时导出一份日志即可。日志增强不能代替实车验收。
+
+## test24：方向盘/原生音乐卡片的标准控制接入与车机信息（2026-10-06～07）
+
+用户明确：方向盘和车机原生音乐卡片均不能控制 CarPlay；同时希望增加车机诊断信息。
+目前仍无车机 ADB。11:24 日志可见媒体会话建立，但没有 `media-key` 到达记录；不知道该日志
+期间是否按过方向盘，不能据此认定车机丢键。代码核对发现既有前台通知只有连接/断开功能，
+未绑定媒体会话；前台 Activity 只处理遥控导航/Siri，普通音乐键完全依赖系统选择媒体源。
+
+Android 9 的原生 `MediaSession` 已不依赖旧 HANDLES_* flags。核对 AOSP API28 实现后没有
+凭猜测添加 flag 或使用 BYD 私有控制。标准媒体通知缺失属于本地可确认的接入缺口；OS N
+原生卡片是否还要求厂商接口，仍需实车日志，不能把标准接入修正直接等同于车机问题已解决。
+
+### 控制链与保持项
+
+- `CarPlayMediaKeys.onNowPlayingChanged`：领克已收到曲名或播放位置时，即使手机暂停、尚无
+  音频流，也建立媒体会话。声明本地媒体播放和返回 Activity，不额外申请焦点。原焦点仍由
+  sink 唯一管理；普通版仍按原音频流启动条件创建会话。
+- `CarPlayMediaKeys.observeNotification` → `DiPlaySessionService` 主线程合并刷新 →
+  `CarPlaySessionNotification.build`：沿用通知 ID/频道，绑定同一个 session token，显示
+  上一首、明确的播放/暂停、下一首，展开后仍有可见的断开按钮。仅领克启用媒体样式。
+  单纯播放进度更新不重发通知；曲目信息/播放状态变化才刷新，系统拒绝更新记录错误类型。
+- 通知按钮只指向既有 `exported=false` 的 Service。不可变 PendingIntent 的身份包含 epoch
+  和命令；Service 核验当前运行代号后转发。过期按钮不重连、不控制新会话、不停止已运行
+  的新服务。异步关闭采用最新 startId，但仍受原 runtime epoch 限制，媒体点击不能留下
+  因旧 startId 无法结束的服务。
+- CarPlay 在前台时，仅明确支持的标准音乐键进入原 `CarPlayMediaCallback` 映射，消费整个
+  down/up/repeat 序列但只发送一次初始 down。音量、文字和未知按键继续交给系统；后台
+  媒体源选择仍遵循 Android。Siri 和既有普通版/BYD 行为保留。
+- 每次创建媒体会话生成绑定当时 controller 的回调，释放后到达的旧命令不能误投新手机
+  会话。所有入口复用 `CarPlayController.sendMediaButton` → `AirPlaySession.sendMedia`，
+  不改变 HID 编码、不强制改音源、不定时抢焦点。
+
+### 诊断范围
+
+`HeadUnitMediaDiagnostics` 复用原后台环境快照和一份导出报告。读取系统构建/安全补丁/ABI、
+汽车/音频/蓝牙/USB 相关平台能力和共享库、桌面包版本、系统媒体浏览服务、应用后台限制与
+省电状态。系统服务查询使用 MATCH_SYSTEM_ONLY，不生成个人应用清单。自身媒体通知记录
+是否存在、是否关联媒体会话（`sessionLinked`）、按钮数量、频道状态；媒体会话记录 active/playing、支持动作、
+元数据是否存在和已收到的命令数，不导出曲名/艺人/封面内容或其他应用的会话。
+
+最多列 16 个输入设备的 ID、vendor/product、来源、键盘类型和媒体键能力；不记录设备名称、
+描述符、序列号。最多 48 条控制键样本记录 code/scan/action/repeat/device/source。区分
+Activity 收到的键、系统媒体会话收到的键、前台直接转发和通知按钮，避免把前台转发误说成
+系统已选中媒体会话。保留协议发送结果和手机播放布尔变化；写出成功不等于手机执行成功。
+没有访问 VIN、位置、车辆总线或私有车控服务，未扩大权限；“读不到”仍不作为硬件不支持的
+证据。无需为了导出额外授予通知监听、无障碍或 root。
+
+实际导出发现，最初布尔字段名 `tokenAttached` 命中 `DiagnosticRedactor` 的敏感词规则，
+导致通知整行被过滤。改名为 `sessionLinked`，保留原脱敏规则，并在
+`CarPlayMediaIntegrationTest` 断言该诊断行和关联状态字段实际存活；今后新增诊断字段
+需检查最终导出内容，不能只检查采集 API 是否执行。
+
+来源（2026-10-06）：[Android 媒体按钮分发](https://developer.android.com/media/legacy/media-buttons)、
+[Notification.MediaStyle 与 token](https://developer.android.com/reference/android/app/Notification.MediaStyle)、
+[AOSP API28 MediaSession](https://android.googlesource.com/platform/frameworks/base/+/android-9.0.0_r1/media/java/android/media/session/MediaSession.java)。
+
+### 验证状态
+
+针对性测试通过；首次测试夹具未允许监听器被置空，且把 Robolectric 的数字键名当作符号名，
+修正夹具后通过，未为通过测试改动播放语义。完整回归 shared 825 项（824 通过、1 原有
+macOS wildcard-bind 跳过）、common 624 项、mobile 33 项；共 1,481 通过、1 跳过、
+0 失败/错误。随后仅修正诊断布尔字段名并增加防过滤断言，最终媒体控制/脱敏/报告相关
+38 项全部通过；lint 0 错误、12 既有警告，最终组装成功。810 份受测输入已与工作区核对，
+除本轮收尾文档外一致，`git diff --check` 通过。
+
+`dist/LynkCo-CarPlay-test24.apk`：版本 `0.2.12-lynk-osn2-test24` / code42，49,102,480 bytes，
+SHA-256 `d22e758a1d7a6308293b102d1e4bd407099d3078eb51c6b45c2c9fd391888e6f`。
+包名/minSdk28、签名、权限、两份认证素材和 CarPlay 返回图标与 test23 一致；13 个原生库
+去除 ELF build-id 后与 test23 相同，最终字段改名重打包前后原生库逐字节相同。
+
+API28 / arm64 只读模拟器：最终包覆盖 test23，首次启动前两份设置文件 hash 相同；启动、
+USB 等待、通过界面实际导出 25,397-byte 报告成功，新增车机/输入/媒体通知信息与结束标记
+均保留。返回 CarPlay 再取消后回到首页，连接服务已移除，crash buffer 为空。
+
+另在同轮包通过 JDWP 临时触发既有音频活动回调，Android 9 实际注册 active 媒体会话，
+系统通知展示上一首/暂停/下一首/断开；点击暂停与前台下一首均到达 controller，日志区分
+notification 和 activity 来源。取消后媒体会话也移除。没有加入随包测试入口，断点/调试
+转发已移除；此验证的媒体控制源码与最终包一致，后续仅调整诊断字段名。该实验没有真实
+音频或 iPhone 会话，`sent=false/session=false` 符合环境，不能据此声称手机已执行、系统已
+选中后台音源，或车机原生卡片已兼容。
+
+证据保存在 `.private/verification/test24/`，包括全量与最终 JUnit、lint、源码快照、APK
+核验、原生媒体冒烟限制及最终实际导出。2026-10-07 用户明确要求将全部代码本地提交，
+包含本轮累计修复、测试、资源和文档；APK、认证素材与本地验证记录不入库。该提交授权
+不代表实车已验收，未推送或发布。
+实车验收应在停车时，手机开始播放后分别按一次方向盘暂停/播放、上一首/下一首，再试原生
+音乐卡片；保留一次导出即可。原生车机卡片的厂商兼容性仍待实测。

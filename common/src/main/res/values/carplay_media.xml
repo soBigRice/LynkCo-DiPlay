@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_media_previous">Previous</string>
+    <string name="carplay_media_play">Play</string>
+    <string name="carplay_media_pause">Pause</string>
+    <string name="carplay_media_next">Next</string>
+</resources>

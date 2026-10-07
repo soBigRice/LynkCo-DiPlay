@@ -31,7 +31,7 @@ internal data class CarPlaySessionPlan(
     init { require(context === context.applicationContext) { "Runtime must use application context" } }
 
     fun create(listener: AirPlaySessionListener, status: (CarPlayStatus) -> Unit,
-        audioDiagnostic: (String) -> Unit): CarPlayBackgroundSession.Snapshot {
+        audioDiagnostic: (String) -> Unit, audioFocusEvent: () -> Unit = {}): CarPlayBackgroundSession.Snapshot {
         val app = context
         val renderer = AndroidMediaSink(
             videoWidth = airPlay.main.widthPixels, videoHeight = airPlay.main.heightPixels,
@@ -40,6 +40,7 @@ internal data class CarPlaySessionPlan(
             mediaChannel = mediaChannel, navigationChannel = navigationChannel, context = app,
             navigationStreamType = navigationStreamType, mediaBufferMillis = mediaBufferMillis,
             onAudioDiagnostic = audioDiagnostic, onMediaAudioChanged = CarPlayMediaKeys::onMediaAudioChanged,
+            onAudioFocusEvent = audioFocusEvent,
         )
         val location = when {
             !runtime.locationReportingEnabled -> null
