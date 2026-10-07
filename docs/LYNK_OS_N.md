@@ -1469,10 +1469,13 @@ API28 / arm64 Android9 模拟器采用 `read-only`、不读写快照运行：
 本轮可交付覆盖安装测试包，仍待实车检查有线首连、触控、Siri/通话、拔插重连和无线。
 模拟器没有真实 iPhone/领克蓝牙与热点环境，不扩大 test17 的实车验收范围。
 
-### 2026-10-06：卸载小八后仍广播的 `car` 热点（待实车定位）
+### 2026-10-06～07：卸载水果互联后仍广播的 `car` 热点（待实车定位）
 
-用户补充：曾安装小八开发的 CarPlay 应用，卸载后 iPhone 重新搜索仍能实时发现 `car`。
+用户此前称为“小八的 CarPlay 应用”，2026-10-07 补充其名称为“水果互联”；开发者、
+安装渠道当时未核实，不能把“小八”直接认定为开发者；包名与版本的后续核验见下文。
+用户此前反馈卸载后 iPhone 重新搜索仍能实时发现 `car`。
 这是仍有热点广播的证据，不是仅有已保存网络；尚未确认广播源、AP 模式或保持热点的服务。
+应用名称仅补充历史排查线索，不证明热点由水果互联创建或维持，也不证明卸载后仍有其服务。
 
 当前领克版已使用 `LocalOnlyHotspotManager` → API28 `startLocalOnlyHotspot` 自动创建临时热点。
 Android9 r1 的 `WifiServiceImpl.startLocalOnlyHotspot` 会在系统共享热点活动时返回
@@ -1488,6 +1491,129 @@ tethering 状态及固件支持的控制接口，再判断定向关闭遗留共�
 普通版读取系统热点密码可能被 Android9 拒绝，不能猜测凭据或误用上联网卡；不启用 BYD
 集成来绕过领克能力判断。当前 `CarHotspotTethering` 只请求开启已保存系统热点，不实现关闭，
 test21 未新增遗留热点清理功能。本次未连接车机、未变更车机设置，尚未证明无线恢复。
+
+2026-10-07 用户提供了本地原安装包
+`~/Downloads/shuiguo_osn_dushu.v184.apk`。核实为水果互联 `1.84 / code184`，包名
+`io.dushu.car`，minSdk24 / targetSdk28，入口 `com.example.autoservice.MainActivity`；
+SHA-256 为 `ad2404636d20ca4324dc8fcf06e699764b4b1da3aa573aa341a20676b0339f67`。
+此前提供的下载链接返回 `1.203 / com.autochips.carplayapp`，不是本次指定的旧包，未安装它。
+包名与版本已明确，开发者与安装渠道仍未核实。
+同日用户回答此前使用是否需要 ADB 授权：「没有点过他的 adb 授权，安装就可以用了」。
+因此手动点击该授权不是用户此前使用的前提；不能把现有 `car` 热点归因为用户曾通过此
+按钮授权的残留。App 自身启动尝试、既有系统权限、热点模式和厂商服务仍需区分，不能
+把用户未点击按钮进一步解释成已证明 App 完全不使用 ADB 或没有任何系统权限。
+
+- 原 APK 的 `setting_misc_adb` 文案明确为「ADB 授权自动打开车机热点 (需要打开无线 adb
+  功能)。」同时声明 `WRITE_SECURE_SETTINGS` / `WRITE_SETTINGS` 等权限，并带有 ARM32
+  的 ADB 工具。这说明按钮依赖先开启无线 ADB，不能把该按钮当作给 Mac 开启车机 ADB
+  的可靠入口；声明权限也不等于已经获得授权。
+- 在两次全新、临时磁盘的 API28 / arm64 模拟器中均安装成功，启动超时。第二次预先验证
+  系统设置可以启动、截图与安装正常，再记录 App 启动：尝试设置
+  `service.adb.tcp.port=5555` 被拒绝，随后记录 `adbtool : start adb server`；内核报告
+  RCU stall，运行任务为 `adb`，普通 ADB shell 也失去响应。停滞发生在其启动自带 ADB
+  工具后，但未证明具体内核根因，更不能推广成真车故障。
+- 另以 API35 / arm64 做一次环境对照：安装成功，Activity 首次启动返回 `ok`，随后
+  `CarplayService.onCreate` 因 `UnsatisfiedLinkError: libcarplay2_jni.so not found` 闪退。
+  APK 的普通 JNI 条目包含 `libcarplay_jni.so`，没有同名 `libcarplay2_jni.so` 条目；不能
+  未经验证就断言由车机补库。日志另见缺少 `com.ecarx.xui.adaptapi.device.Device` 与
+  `com.geely.service.oneosapi/.OneOSApiService`，这些日志本身不证明它们是闪退原因。
+- 用户要求继续后，在另一份全新 API28 临时磁盘上做诊断隔离：APK 未修改；仅在模拟器
+  内将 App 的 `files` 目录设为 root 所有、只读，且预置不可执行/不可覆盖的空 `files/adb`，
+  阻止自带 ARM32 ADB 工具启动。此次 Activity 启动 486ms，并实际进入、滚动查看设置页。
+  隔离也阻止其他文件写入，日志有图标/隐私 HTML 写入失败，因此这是界面取证实验，不能
+  当作原安装流程或无线功能正常。未点击 ADB 授权、更新或激活，退出设置用 CANCEL。
+- 全新设置页实际选中车机热点 `car's`，SSID 为 `car`、密码 `12345678`、频段 `5G`；
+  信道输入为空，`DO NOT setting` 是 hint，不是信道值。文案要求车机热点与所填配置一致。
+  这些是 App 默认值，不证明当前车机的密码、真实频段或广播源，也不是 iPhone 连接成功。
+- 本次实际界面与静态布局均未发现自动 LocalOnlyHotspot 开关。虽有共享字符串
+  `setting_misc_localonlyhotspot`，`layout/setting_dialog`（`res/S1.xml`）没有对应控件，
+  资源表没有 `box_localonlyhotspot`，579 份资源 XML 没有引用该字符串；实际逐页查看也
+  未找到该项。不能仅凭共享文案推断当前变体调用 `startLocalOnlyHotspot`；加固 Java 中
+  是否有其他热点控制路径仍未知。ADB 按钮及其“自动打开车机热点”说明在实际界面中可见。
+
+### 水果互联实际无线链路与本项目对照（2026-10-07）
+
+继续在独立 API28 / arm64 userdebug 模拟器核对原 APK。此次只将 App 私有目录里的
+`files/adb` 设成不可替换/执行的目录，其余文件可正常写入，避开此前自带 ARM32 ADB
+工具导致的停滞。通过 JDWP 只读取得已加载类信息及其 ART DexFile 指向的运行时字节，
+使用本地 SDK 定向核对热点、RFCOMM 和 NSD 方法。APK 未修改，未绕过激活或认证。
+运行进程实际加载 `lib/arm64/libcarplay_jni.so`；API35 的缺库错误不能替代此版本的 API28
+路径。部分后续启动出现 SIGBUS / PC `0x785`，原因未证实；这些实验不算原始无线连接成功。
+
+**未点 ADB 按钮与 App 自己尝试 ADB 是两件事。**运行时 Java 已核实：
+`myApplication.onCreate` 在 SDK≤28 调 `f3.k.c(context,false,false)`；当
+`init.svc.udhcpdwlan=running` 且其 vendor rc 存在，或 `/vendor/bin/busybox` 已存在时
+提前返回，否则启动 `f3.j.run`。后者自动启动随包 ADB、尝试连接 `127.0.0.1`，通过 shell
+请求 `WRITE_SETTINGS` AppOp 和 `WRITE_SECURE_SETTINGS`，无需点设置按钮。
+这解释了“未点按钮”并不能排除自动授权尝试，但还不能证明用户车机上的执行结果。
+隔离模拟器中这些 ADB 命令被拒绝，`WRITE_SETTINGS` 仍为 default，未取得对应权限。
+
+`f3.j.run` 还包含仅在 `Build.TYPE=userdebug` 进入的系统修改分支：尝试 remount
+`/vendor`，根据结果与参数使用临时 hostapd/DHCP 或写入 vendor init 服务；其模板涉及
+`wlan0 / 192.168.175.1`、hostapd、busybox 及替换命名为 GNSS 的 vendor 可执行文件。
+在 App 目录生成模板不等于系统安装或服务运行。该分支影响系统分区、权限和服务，不能
+作为普通无线修复直接移植。本次没有在车机执行、没有新增对应系统写入实现。
+
+已确认的实际协议顺序：
+
+`选定 iPhone → e3.c / BluetoothDevice.createRfcommSocketToServiceRecord → iAP2
+身份与认证、Wi-Fi 配置交换 → NSD 发现 _carplay-ctrl._tcp. →
+CarplayService$b$a.onServiceResolved → CarplayNative.onBrowseHandler →
+CarPlayControlClientConnect → GET /ctrl-int/1/connect → AirPlay 接收流程`。
+这是一条代码调用链，实车是否完整走完仍未验证。
+
+- RFCOMM UUID 为 `00000000-deca-fade-deca-deafdecacafe`，iAP2 检测字节为
+  `FF 55 02 00 EE 10`，与本项目相同；所核对客户端没有把手机名称、UUID 缓存或
+  `BluetoothDevice.isConnected` 作为连接前提。其无界重试不宜替代本项目的取消和超时。
+- `setWifiConfiguration` 保存 SSID/密码/信道供协议回复，不负责开热点。`0x5702` 请求
+  对应 `0x5703` 回复；信道 0 编成 TLV `00 05 00 04 00`。本项目 `Iap2Messages.u8(4,
+  channel)` 相同，未知信道并非协议差异。蓝牙名称写入 `sAdapterName`；第四个字符串
+  初始为空，写入 `sIpv6Addr`，不能把蓝牙名称误认成 IP。
+- 初始空 `sIpv6Addr` 会跳过 native BT identification 里的部分 `0x430x` 能力列表追加，
+  但 Bonjour 控制连接使用独立 `ip_address / ip_port` 或解析端点，不读该字段，也不经过
+  `Iap2Link::CarPlayStartSession`。本项目 `CarPlayBonjour.connectProbeRequest` 已实现
+  相同 HTTP 入口及十进制 `AirPlay-Receiver-Device-ID`。没有据此关闭既有 iAP2 能力。
+- `tools.a.y` 将 `init.svc.udhcpdwlan=running` 或系统 AP state=12/13 当作热点就绪。
+  这比本项目的接口验证宽松，不能单凭服务状态证明密码、IP、AP 网卡或 iPhone 可达。
+  `android.fxbridge.a.j` 虽包装 `ConnectivityManager.startTethering`，已捕获调用者仅
+  SDK≥30，不能当作 Android9 的开热点路径。`tools.a.C` 是提示音调度，`tools.a.F`
+  是 AlarmManager 重启 App，两者都不是开热点。
+
+**本项目已落实的局部修正：** `CarPlayHostActivity.requiredWirelessPermissions` 仅在
+领克资源配置 + API28 + MANUAL 复用系统热点时移除额外的 coarse/fine location 门禁；
+`CarPlayEnvironmentCheck.EnvironmentFacts` 保留真实 `hotspotMode`，环境提示同步修正。
+位置上报仍独立申请定位；LOHS/P2P、原版、其他 API、有线流程和真实 AP 接口验证保持。
+Android9 的 AP 配置读取权限与定位不同；扫描或连接信息的可选频率读取已经接受空值、
+脱敏信息和权限失败，不应把它们升级为 MANUAL 必须授权定位。
+依据：[Android9 WifiServiceImpl](https://android.googlesource.com/platform/frameworks/opt/net/wifi/+/android-9.0.0_r1/service/java/com/android/server/wifi/WifiServiceImpl.java)、
+[WifiPermissionsUtil](https://android.googlesource.com/platform/frameworks/opt/net/wifi/+/android-9.0.0_r1/service/java/com/android/server/wifi/util/WifiPermissionsUtil.java)。
+
+修复前新增回归在 Host 启动与环境提示各失败一项；修复后 28 项定向测试通过，覆盖
+MANUAL 拒绝定位仍可越过启动权限检查、独立位置上报、LOHS/P2P、原版及 API29/33 对照。
+这修正的是多余门禁，不能把它认定为此前实车无线失败的唯一根因。
+
+2026-10-06 11:18 的旧 test21 实车日志在 MANUAL 接口选择阶段，因
+`getTetheredIfaces=[]` 拒绝 wlan0，没有进入 listener / RFCOMM / iAP2。test22 已加入
+只读驱动 AP mode=3 判断，test24 已包含；本次没有凭第三方宽松判断删掉该防线。
+实车下一次应核对 `driver_ap → HotspotReady → listener → RFCOMM → iAP2 → Bonjour /
+ctrl-int → AirPlay` 首个失败阶段。系统热点实际名称/密码、安全类型和广播源仍需核实，
+不把水果互联默认 `car / 12345678 / 5G` 当成用户车机事实。
+
+短证据保存在 `.private/verification/shuiguo-20261007/java-runtime-summary.json`、
+`native-analysis/` 和 `permission-fix/`。运行时 Dex/完整反汇编、临时磁盘和构建副本收尾
+删除，仅保留本地互操作观察与必要日志；不复制第三方实现进产品，不改用户原 APK、
+共享 AVD、车机或其他任务的修改。隔离测试包为 `dist/LynkCo-CarPlay-wireless-check.apk`，版本
+`0.2.12-lynk-osn2-wireless-check / code42`，SHA-256
+`ffbd7299e13ca2e41bbd1ffba07cbbc22f606f33d7c2e48db6dc6e2804da9b6a`。
+以 HEAD `01c438b` 为基线，仅叠加本次权限实现/测试与临时 suffix，没有混入同时进行的
+Dock 改动；28 项隔离测试与 `assembleLynkStandaloneDebug` 通过。包名、minSdk28、v2
+签名和认证素材与 test24 一致。主工作区版本未修改，未提交或扩大实车验收范围。
+
+API28 模拟器安装 Success，Host 启动 1683ms。合成 MANUAL 配置，独立位置上报关闭，
+麦克风获准、coarse/fine 定位已撤销，实际进入“车机热点无法使用”而非定位授权页；此模拟器
+没有已核实 AP 或 iPhone，该热点失败符合环境，不能算无线连接成功。实际点击取消后
+回到 `DiPlayActivity`，没有活动 `DiPlaySessionService`。安装、权限、XML/截图与退出
+记录保存在 `permission-fix/emulator-result.json` 及其关联证据。
 
 ## test22：按 11:24 实车日志修复焦点恢复与热点识别（2026-10-06）
 
@@ -1726,3 +1852,67 @@ notification 和 activity 来源。取消后媒体会话也移除。没有加入
 不代表实车已验收，未推送或发布。
 实车验收应在停车时，手机开始播放后分别按一次方向盘暂停/播放、上一首/下一首，再试原生
 音乐卡片；保留一次导出即可。原生车机卡片的厂商兼容性仍待实测。
+
+
+## test25：预留车机 Dock 空间（2026-10-07）
+
+用户明确指定窗口 1920×920、底部预留 1920×160、Safe Area 1920×880，开启
+Draw outside Safe Area，并增加功能开关。入口为「设置 → 显示 → 预留车机 Dock 空间」。
+默认关闭，仅在领克 target 启用；偏好独立保存为 `lynk_dock_enabled`，不覆盖原有缩放比例、
+手动 Safe Area、drawOutside 或系统栏偏好。关闭后恢复原配置。连接期间切换会重连以重新协商。
+
+调用链与坐标约定：
+
+- `DiPlayActivity.settings` 保存开关、重新布局；已有会话沿原 `connect` 入口恢复。
+  `CarPlayHostActivity.onResume` 重读偏好，变化时重启协议协商。
+- `LynkDockWindow.apply` 使用 Android Window 的物理像素尺寸与 `TOP|LEFT`，将首页、
+  设置和投屏窗口放在 `(0,0)`，在 1920×1080 显示上窗口为 1920×920。
+  `FLAG_NOT_TOUCH_MODAL` 允许窗口外触摸交给下层窗口；底部导航栏保持显示。
+  这只保留系统 Dock 的位置，不生成或修改车机 Dock。
+- `CarPlayHostActivity.createAirPlayConfig` 优先使用独立 Dock profile，而非手动缩放；
+  `LynkDockLayout.display` 输出 1920×920，safeArea bottom inset=40，其他 inset=0，
+  `safeAreaDrawOutside=true`。顶部 880 像素是安全区域，其下 40 像素允许 iPhone 绘制。
+  Android 窗口以下的 160 像素不会成为视频或触摸层的一部分。
+- Dock profile 开启时，手动分辨率和 Safe Area 控件停用或显示固定配置说明；
+  旧手动偏好原样保留。日志区分保存的偏好和当前协商结果。
+- 较小横屏只按比例缩小 Android viewport，协议画布仍是 1920×920；较大横屏不超过
+  1920×920。竖屏或分屏时恢复系统窗口约束，不强行把窗口扩到任务边界之外。
+  OEM 对系统 Dock 与窗口层级的处理仍须领克实车确认。
+
+采用已有原生 Window API，没有加入布局/窗口管理依赖，也没有修改设备分辨率或系统设置。
+官方依据（核查 Android 9/API28 入口及当前文档，2026-10-07）：
+[Window.setLayout](https://developer.android.com/reference/android/view/Window#setLayout(int,int))、
+[WindowManager.LayoutParams](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_NOT_TOUCH_MODAL)。
+
+回归：`mobile/.../LynkDockLayoutTest` 覆盖实际像素窗口、顶部对齐、窗口外触摸标志、
+关闭恢复、设置保存/重建及真实 Host 配置输出；既有窗口缩放、系统栏与 Apply/Cancel 测试保留。
+本轮构建快照自动验证：mobile 37 项、common 64 项，共 101 项全部通过；Lint 0 errors /
+12 warnings，issue ID、severity、message 与 test24 完全一致。API28 / arm64 独立只读模拟器
+以 1920×1080 逻辑显示检查：首页、设置和 Host 的真实 `mFrame` 均为 `[0,0][1920,920]`；
+开启和关闭状态均在进程重启后保留。关闭后原窗口 frame 恢复为 `[0,0][1920,1080]`，
+content 为 `[0,0][1920,1008]`，保留系统导航栏的原 inset；不要把 content frame 当成窗口 frame。
+有线入口进入 USB 等待页，未连接真实 iPhone；本应用 crash buffer 为空。
+
+`dist/LynkCo-CarPlay-test25.apk` 与 test24 签名和认证素材相同；13 个 native library 排除
+构建路径引起的 `.note.gnu.build-id` 差异后相同，没有修改 native 连接实现。APK SHA-256：
+`d2c2a16b0d4911413ea2326bea7e0b89ec995cb93d81e3dae7f4a6cb1da56675`。
+记录保存在 `.private/verification/test25/`；已关闭本轮 emulator-5572、单次 Gradle 进程，
+清除一次性日志、临时 UI 脚本和重复构建 APK，保留 test25、必要截图/元数据及原有共享缓存。
+其他任务的 emulator-5570 未操作。打包后另一个任务继续修改无线权限相关源码与测试，
+没有回滚这些并行编辑；本节测试和模拟器证据仅对应 `tested-source.json` 标识的构建快照，
+后续工作区修改不继承此次验证。尚未提交、推送或发布。
+
+实车未验收。停车时开启并连接 iPhone，检查
+底部原生 Dock 可见且可点击、CarPlay 底部控件触摸准确，再关闭确认原显示恢复；异常时
+导出同一份报告，核对 `dock=true canvas=1920x920 safeArea=...bottom=40 drawOutside=true`。
+
+
+### 2026-10-07：当前源码统一同步检查
+
+用户明确要求将全部当前代码推送至 `soBigRice/LynkCo-DiPlay` 的 `main`；包含此前媒体
+控制提交，以及本轮 Dock 开关、API28 MANUAL 定位门禁修正、测试和互操作说明。
+合并当前工作区后，common 全量 627 项、领克 mobile 全量 41 项，共 668 项全部通过；
+Lint 0 errors / 12 warnings，与 test24 的 issue ID、severity、message 完全一致。
+`git diff --check` 和公开源码凭据检查通过；认证素材、APK 和本地验证记录不入 Git。
+本轮没有重新打包 standalone APK，磁盘上的 test25 仍对应上一节标明的 Dock 构建快照，
+GitHub 当前源码同时包含 Dock 和 MANUAL 权限修正。实车验收范围没有扩大。

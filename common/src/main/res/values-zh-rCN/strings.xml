@@ -1,4 +1,7 @@
 <resources>
+    <string name="lynk_dock_title">预留车机 Dock 空间</string>
+    <string name="lynk_dock_description">应用靠顶部显示：窗口 1920×920，底部预留 1920×160，Safe Area 1920×880，允许绘制到安全区域外。切换会重连 CarPlay。</string>
+    <string name="lynk_dock_active">Dock 模式：1920×920 · Safe Area 1920×880 · 已开启 Draw outside Safe Area。关闭 Dock 模式后可自定义分辨率和安全区域。</string>
     <string name="existing_wifi_title">现有 Wi-Fi / 同一局域网</string>
     <string name="existing_wifi_description">使用已有路由器或随身 Wi-Fi。让 iPhone 和车机保持连接同一网络，并通过它上网。</string>
     <string name="existing_wifi_hint">现有 Wi-Fi · 两台设备保持连接同一 Wi-Fi，蓝牙保持开启，无需开启车机热点。</string>

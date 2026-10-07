@@ -22,6 +22,14 @@ import java.io.File
 
 /** SharedPreferences persistence for the accessory identity and paired controllers. */
 object AirPlayPersistence {
+    fun loadLynkDockEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("lynk_dock_enabled", false)
+
+    fun saveLynkDockEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("lynk_dock_enabled", enabled).apply()
+    }
+
     private const val KEY_HEAD_UNIT_BLUETOOTH_ADDRESS = "head_unit_bluetooth_address"
 
     fun loadHeadUnitBluetoothAddress(context: Context): String? =

@@ -65,6 +65,16 @@ import kotlin.math.roundToInt
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
 class DiPlayActivity : ComponentActivity() {
+    private val dockWindow by lazy { LynkDockWindow(this) }
+
+    private fun applyDockWindow() {
+        val active = dockWindow.apply(LynkDockLayout.enabled(this))
+        WindowCompat.setDecorFitsSystemWindows(window, !active)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.statusBars())
+            show(WindowInsetsCompat.Type.navigationBars())
+        }
+    }
     private val handler = Handler(Looper.getMainLooper())
     private var page = "home"
     private var settingsGroup = LynkSettingsGroup.GENERAL
@@ -260,7 +270,11 @@ class DiPlayActivity : ComponentActivity() {
         outState.putBoolean("byd_vehicle_advanced", bydVehicleAdvancedExpanded)
         super.onSaveInstanceState(outState)
     }
-    override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); render() }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyDockWindow()
+        render()
+    }
     private fun openOverlayPermission() {
         val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
         if (runCatching { startActivity(intent) }.isFailure) {
@@ -292,6 +306,7 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        applyDockWindow()
         if (Build.VERSION.SDK_INT < 33 && AppLocale.preference(this) != languagePreferenceAtCreate) {
             recreate()
             return
@@ -339,6 +354,7 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
         super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        applyDockWindow()
         render()
     }
 
@@ -348,6 +364,7 @@ class DiPlayActivity : ComponentActivity() {
             resources.configuration.screenHeightDp < 450
 
     private fun render() {
+        applyDockWindow()
         // A pending assignment belongs to the widgets being replaced, never to another page.
         WheelKeyService.cancelLearning()
         // A restore still waiting for layout keeps its target: the old page was never laid out.
@@ -822,6 +839,14 @@ class DiPlayActivity : ComponentActivity() {
         }
         bydAdbSettings(content)
         section(content, getString(R.string.display_and_performance), R.drawable.ic_dp_display, LynkSettingsGroup.DISPLAY) { card ->
+            if (simpleConnectionFlow) {
+                toggle(card, getString(R.string.lynk_dock_title), getString(R.string.lynk_dock_description),
+                    AirPlayPersistence.loadLynkDockEnabled(this)) { enabled ->
+                    AirPlayPersistence.saveLynkDockEnabled(this, enabled)
+                    render()
+                    if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+                }
+            }
             val nightModes = CarPlayNightMode.entries
             choice(
                 card,
@@ -850,7 +875,8 @@ class DiPlayActivity : ComponentActivity() {
                     .putExtra("picture_controls", true).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
             }, matchButton(0, 56).apply { bottomMargin = dp(24) })
             carPlaySizeControl(card)
-            resolutionSettingControl(
+            if (LynkDockLayout.enabled(this)) card.addView(label(getString(R.string.lynk_dock_active), 14, MUTED))
+            else resolutionSettingControl(
                 card, R.string.resolution, R.string.custom_resolution_hint,
                 CarPlayDisplayScale.MIN_PERCENT..CarPlayDisplayScale.MAX_PERCENT, 100,
                 R.string.custom_resolution_summary,

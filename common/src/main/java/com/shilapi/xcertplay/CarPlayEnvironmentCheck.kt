@@ -42,10 +42,13 @@ internal data class EnvironmentFacts(
     val microphone: Boolean, val usbHost: Boolean?, val appleDevices: Int?, val usbPermission: Boolean?,
     val wifi: Boolean?, val bluetooth: Boolean?, val bluetoothPermission: Boolean,
     val bluetoothEnabled: Boolean?, val phonePaired: Boolean?, val locationPermission: Boolean, val nearbyWifiPermission: Boolean,
-    val locationEnabled: Boolean?, val automaticHotspot: Boolean, val automaticSupported: Boolean,
+    val locationEnabled: Boolean?, val hotspotMode: WirelessHotspotMode, val automaticSupported: Boolean,
     val manualConfigured: Boolean?, val systemHotspot: Boolean?, val sessionPresent: Boolean,
     val sessionActive: Boolean, val lynkProfile: Boolean = false, val errors: List<String> = emptyList(),
-)
+    val locationReportingEnabled: Boolean = false,
+) {
+    val automaticHotspot: Boolean get() = hotspotMode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT
+}
 
 internal data class EnvironmentReport(val capturedAt: Long, val facts: EnvironmentFacts, val items: List<EnvironmentItem>) {
     fun state(group: EnvironmentGroup): EnvironmentState = when {
@@ -113,7 +116,7 @@ internal object CarPlayEnvironmentCheck {
             locationPermission = granted(Manifest.permission.ACCESS_FINE_LOCATION) && granted(Manifest.permission.ACCESS_COARSE_LOCATION),
             nearbyWifiPermission = Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.NEARBY_WIFI_DEVICES),
             locationEnabled = read("location") { app.getSystemService(LocationManager::class.java)?.isLocationEnabled },
-            automaticHotspot = mode == WirelessHotspotMode.LOCAL_ONLY_HOTSPOT,
+            hotspotMode = mode,
             automaticSupported = LynkLocalHotspot.supported(app),
             manualConfigured = read("manual_hotspot") {
                 val ssid = AirPlayPersistence.loadManualHotspotSsid(app)
@@ -125,6 +128,7 @@ internal object CarPlayEnvironmentCheck {
             systemHotspot = read("hotspot_state") { CarHotspotStatus.isEnabled(app) },
             sessionPresent = session, sessionActive = CarPlayBackgroundSession.active,
             lynkProfile = app.resources.getBoolean(R.bool.config_simple_connection_flow), errors = errors.toList(),
+            locationReportingEnabled = AirPlayPersistence.loadLocationReportingEnabled(app),
         )
         return evaluate(facts)
     }
@@ -169,10 +173,12 @@ internal object CarPlayEnvironmentCheck {
             check("bluetooth_power", wireless, f.bluetoothEnabled, R.string.env_bt_power, R.string.env_bt_power_ok, R.string.env_bt_power_bad, EnvironmentAction.BLUETOOTH)
         }
         check("phone_pairing", wireless, f.phonePaired, R.string.env_pairing, R.string.env_pairing_ok, R.string.env_pairing_bad, EnvironmentAction.CONNECTION)
-        // The API 28 transport requests fine location even for manual hotspot interface discovery.
-        if (f.api < 33) check("location_permission", wireless, f.locationPermission, R.string.env_location_permission,
-            R.string.env_permission_ok, R.string.env_location_permission_bad, EnvironmentAction.PERMISSIONS)
-        else check("nearby_wifi_permission", wireless, f.nearbyWifiPermission, R.string.env_nearby_wifi,
+        // Match the host's OS N system-AP path; P2P and automatic APs retain their permission gate.
+        val locationFreeSystemAp = f.lynkProfile && f.api == 28 && f.hotspotMode == WirelessHotspotMode.MANUAL
+        if (f.api < 33 && (!locationFreeSystemAp || f.locationReportingEnabled))
+            check("location_permission", wireless, f.locationPermission, R.string.env_location_permission,
+                R.string.env_permission_ok, R.string.env_location_permission_bad, EnvironmentAction.PERMISSIONS)
+        if (f.api >= 33) check("nearby_wifi_permission", wireless, f.nearbyWifiPermission, R.string.env_nearby_wifi,
             R.string.env_permission_ok, R.string.env_permission_bad, EnvironmentAction.PERMISSIONS)
         if (f.automaticHotspot) {
             check("hotspot_api", wireless, f.automaticSupported, R.string.env_hotspot_api, R.string.env_hotspot_api_ok, R.string.env_hotspot_api_bad, EnvironmentAction.CONNECTION)

@@ -1,4 +1,7 @@
 <resources>
+    <string name="lynk_dock_title">Reserve space for the car Dock</string>
+    <string name="lynk_dock_description">Move the app to the top: 1920×920 window, 1920×160 Dock space, 1920×880 Safe Area. Draw outside Safe Area is on. Switching reconnects CarPlay.</string>
+    <string name="lynk_dock_active">Dock mode: 1920×920 · Safe Area 1920×880 · Draw outside Safe Area on. Turn off Dock mode to use custom resolution and Safe Area.</string>
     <string name="existing_wifi_title">Existing Wi-Fi / Same LAN</string>
     <string name="existing_wifi_description">Use an existing router or portable Wi-Fi. Keep the iPhone and car on the same network with Internet access.</string>
     <string name="existing_wifi_hint">Existing Wi-Fi · Keep both devices on the same Wi-Fi and Bluetooth on. No car hotspot is needed.</string>

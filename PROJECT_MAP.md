@@ -4,8 +4,9 @@
 核对日期：2026-10-07。test14 已整合上游 0.2.12 并同步 fork/main；test15 已实现首页无线/有线双入口和配对复用；test16 根据 10 月 5 日实车日志处理有线蓝牙媒体交接、统一领克音频焦点，并补齐实际输出/呈现/热点诊断。具体验证边界见适配文档末尾。保留领克配色、设置、环境检测、署名、自动临时热点及 USB/音频适配。2026-10-06 用户确认 test17 有线可以正常使用、流畅度尚可；无线仍待实车验证。模拟器无法证明真实 CarPlay 认证、无线投屏或行车稳定性。
 
 - [领克适配、构建与实车验收](docs/LYNK_OS_N.md)：2023 款领克 03，用户提供的 OS N 2.0 / Android 9，iPhone 14 Pro / iOS 27。
-- 当前实现和边界见适配文档「test17～test24」：test17 有线使用和流畅度曾获用户确认；后续按实车新日志选择性修复和增加诊断。test24 完成标准媒体控制接入与车机信息读取，方向盘/原生卡片及无线仍待实车验证，自动验证结果及验收范围以文末记录为准。
+- 当前实现和边界见适配文档「test17～test25」：test17 有线使用和流畅度曾获用户确认；后续按实车新日志选择性修复和增加诊断。test24 完成标准媒体控制接入与车机信息读取，test25 增加 Dock 显示范围开关；方向盘/原生卡片、无线和 Dock 实际效果仍待实车验证，自动验证结果及验收范围以文末记录为准。
 - [官网与应用更新](docs/UPDATES.md)：Pages 静态站与共享公开元数据；`DiPlayActivity.checkAppUpdates` → `LynkUpdateRequest` → `LynkAppUpdates.parse`，仅领克包启用，当前完整 APK 暂不发布。
+- 水果互联互操作核对：Android9 启动包含自动本机 ADB 尝试，不能由“未点授权按钮”推断未用 ADB；RFCOMM / iAP2 / Bonjour 协议入口与本项目相同。领克 API28 MANUAL 已移除额外定位门禁，位置上报独立；证据、系统修改边界与实车待验阶段见适配文档「水果互联实际无线链路与本项目对照」。
 - `mobile/build.gradle.kts`：普通 Android 车机 APK；`lynkDebug` 独立包名与资源覆盖。不使用面向 Android Automotive OS 的 `automotive` target。
 - `DiPlayActivity.connectionHome/about`：首页和关于页注明基于 DiPlay 修改，保留上游项目链接及许可证声明；后续视觉调整不得移除署名。
 - `common/.../DiPlayActivity.kt`：首页、热点配置、配对设备选择、可选车机蓝牙地址补充（留空恢复自动）、诊断导出；`CarPlayHostActivity.kt`：画面、Surface、状态订阅和用户命令；`CarPlaySessionPlan`：不可变连接输入；`CarPlayBackgroundSession`：会话、日志、重连、关闭及前台服务 epoch。
@@ -14,6 +15,7 @@
 - `mobile/.../LynkPanelNavigationTest.kt`：API28 首页仅无线/有线两张卡片和设置按钮；全部设置分类、检测和日志可达，浏览不改变画质/音频设置，有线入口、类别重建恢复及连接面板窗口缩小时复用原 View 并重新测量。
 - `DiPlayActivity.prepareLynkWireless/resumeWirelessPreparation` → `DiPlayBluetooth.preferredPhone`：已保存且仍配对的地址优先，无保存时只自动选择唯一名称含 iPhone 的设备；多部/改名未选择的设备由用户选一次。蓝牙关闭先请求开启，准备页监听真实状态并自动继续；离开/取消清除待连接意图。广播只在 Activity 可见期间注册；同类型后台会话先恢复，不将 2.4GHz 交接后的蓝牙关闭当作解除配对。`LynkRememberedConnectionTest` 覆盖这些分支。
 - `common/.../CarPlaySettingsButton.kt`：领克投屏页右上角可拖动设置按钮，点击经 `openSettingsMenu` 打开设置；`DiPlayActivity` 的「返回 CarPlay」复用后台会话。拖动/取消不透传触摸或触发点击，三指入口保留。
+- test25：`DiPlayActivity.settings` 的「预留车机 Dock 空间」→ `AirPlayPersistence.lynk_dock_enabled` → `LynkDockWindow` 限制首页/设置与投屏窗口到顶部 1920×920；`CarPlayHostActivity.createAirPlayConfig` → `LynkDockLayout.display` 固定协商 1920×920、底部安全 inset=40、drawOutside=true。开关默认关闭，保留手动分辨率、安全区域和系统栏偏好；切换时重连。API28 定向回归见 `LynkDockLayoutTest`，实际窗口及实车边界见适配文档「test25」。
 - `common/.../CarPlayMediaKeys.kt` → `CarPlayMediaButton.forKeyCode`：领克 PLAY/PAUSE 保持各自语义；BYD 才应用硬件 toggle 规则。控制器记录脱敏命令来源，AirPlay 记录 press/release 写出结果，iAP2 记录播放布尔变化；写出不等于手机执行。
 - test24：`CarPlayMediaKeys` 为领克已到达的暂停曲目元数据建立会话但不请求焦点；`CarPlaySessionNotification` 将同一会话 token 绑定到既有前台通知，提供上一首/播放或暂停/下一首，并保留断开。`DiPlaySessionService` 按 runtime epoch 验证内部按钮；`CarPlayHostActivity` 处理前台标准媒体键，未知键和音量键保持系统行为，后台分发仍由 Android 决定。每个媒体回调绑定原 controller，旧回调不能控制新连接。`CarPlayMediaIntegrationTest` 覆盖通知、按键重复、暂停状态、旧按钮/回调及刷新频率。
 - `common/.../ConnectionGuide.kt`：领克版按 `CarPlayStatus` 显示中文/英文连接阶段和失败后的操作，不再解析翻译后的提示。`config_simple_connection_flow` 只在领克包启用。

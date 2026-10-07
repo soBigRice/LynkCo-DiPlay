@@ -110,6 +110,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Apple devices are discovered by vendor ID; CH341 uses the configured VID/PID below.
  */
 class CarPlayHostActivity : ComponentActivity() {
+    private val dockWindow by lazy { LynkDockWindow(this) }
+    private var dockModeEnabled = false
     private data class SettingsBaseline(
         val safeAreaRects: MutableMap<DisplaySize, SafeAreaRect?>,
         val customIconBytes: ByteArray?,
@@ -572,6 +574,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun loadPersistedSettings() {
+        dockModeEnabled = LynkDockLayout.enabled(this)
         carPlayNightMode = AirPlayPersistence.loadCarPlayNightMode(this)
         ambientLightThreshold = AirPlayPersistence.loadAmbientLightThreshold(this)
         ambientDelaySeconds = AirPlayPersistence.loadAmbientDelaySeconds(this)
@@ -696,6 +699,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
 
     private fun requiredWirelessPermissions(): List<String> = when {
+        // On OS N 2.0 the system owns this AP; MANUAL only observes network/driver state.
+        // Location-based channel hints are optional. iPhone GPS reporting has its own consent.
+        simpleConnectionFlow && Build.VERSION.SDK_INT == Build.VERSION_CODES.P &&
+            wirelessHotspotMode == WirelessHotspotMode.MANUAL -> emptyList()
         wirelessHotspotMode == WirelessHotspotMode.EXISTING_WIFI ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) listOf(Manifest.permission.BLUETOOTH_CONNECT) else emptyList()
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> listOf(
@@ -752,6 +759,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        val savedDockMode = LynkDockLayout.enabled(this)
+        val dockModeChanged = dockModeEnabled != savedDockMode
+        dockModeEnabled = savedDockMode
         logDisplayState("resume")
         mainHandler.removeCallbacks(connectionWaitTick)
         if (simpleConnectionFlow) mainHandler.post(connectionWaitTick)
@@ -815,6 +825,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         maybeStartCarPlay()
         applyFullscreenMode()
+        if (dockModeChanged) restartCarPlay("Dock display profile changed; reconnecting")
         if (systemBarsChanged) refreshDisplaySizeAfterLayout()
         videoView?.post {
             val view = videoView ?: return@post
@@ -1735,6 +1746,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
         val seekBar = SeekBar(this).apply {
+            isEnabled = !dockModeEnabled
             max = CarPlayDisplayScale.MAX_PERCENT - CarPlayDisplayScale.MIN_PERCENT
             progress = displayScalePercent - CarPlayDisplayScale.MIN_PERCENT
             splitTrack = false
@@ -2698,7 +2710,7 @@ class CarPlayHostActivity : ComponentActivity() {
             },
         ) { label, checked, onChanged ->
             section.addView(
-                settingsSwitchRow(getString(label), checked, getString(label), onChanged),
+                settingsSwitchRow(getString(label), checked, getString(label), onChanged = onChanged),
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -2758,8 +2770,9 @@ class CarPlayHostActivity : ComponentActivity() {
         section.addView(
             settingsSwitchRow(
                 label = getString(R.string.draw_outside_safe_area),
-                checked = safeAreaDrawOutside,
+                checked = dockModeEnabled || safeAreaDrawOutside,
                 description = getString(R.string.allow_carplay_ui_outside_the_safe_area),
+                enabled = !dockModeEnabled,
             ) { checked ->
                 safeAreaDrawOutside = checked
                 updateResolutionMenu()
@@ -2770,6 +2783,7 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(12) },
         )
         safeAreaSummaryView = summary
+        if (dockModeEnabled) for (index in 0 until buttons.childCount) buttons.getChildAt(index).isEnabled = false
         updateSafeAreaSummary()
         return section
     }
@@ -2882,6 +2896,7 @@ class CarPlayHostActivity : ComponentActivity() {
         label: String,
         checked: Boolean,
         description: String,
+        enabled: Boolean = true,
         onChanged: (Boolean) -> Unit,
     ): View = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -2893,6 +2908,7 @@ class CarPlayHostActivity : ComponentActivity() {
         addView(
             Switch(this@CarPlayHostActivity).apply {
                 isChecked = checked
+                isEnabled = enabled
                 contentDescription = description
                 showText = false
                 thumbTintList = ColorStateList(
@@ -3307,9 +3323,11 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun updateResolutionMenu() {
-        resolutionValueView?.text = "${displayScalePercent}%"
+        resolutionValueView?.text = if (dockModeEnabled) "1920×920" else "${displayScalePercent}%"
         val native = activeDisplaySize ?: currentActivitySize()
-        val resolution = if (native == null) {
+        val resolution = if (dockModeEnabled) {
+            getString(R.string.lynk_dock_active)
+        } else if (native == null) {
             getString(R.string.handshake_resolution_waiting_for_display)
         } else {
             val negotiated = CarPlayDisplayScale.applyPercent(
@@ -3416,8 +3434,8 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun createAirPlayConfig(size: DisplaySize): AirPlayConfig {
-        val safeWidth = (size.width / 2 * 2).coerceAtLeast(2)
-        val safeHeight = (size.height / 2 * 2).coerceAtLeast(2)
+        val safeWidth = if (dockModeEnabled) LynkDockLayout.WIDTH else (size.width / 2 * 2).coerceAtLeast(2)
+        val safeHeight = if (dockModeEnabled) LynkDockLayout.HEIGHT else (size.height / 2 * 2).coerceAtLeast(2)
         val alignedSize = DisplaySize(safeWidth, safeHeight)
         val physical = resolvePhysicalSize(alignedSize)
         val knobPrimary = AndroidTvInputMode.shouldUseKnobAsPrimaryInput(this)
@@ -3436,7 +3454,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 "tv=${AndroidTvInputMode.isTelevision(this)} " +
                 "touchscreen=${resources.configuration.touchscreen}",
         )
-        val requestedResolutionPercent = displayScalePercent
+        val requestedResolutionPercent = if (dockModeEnabled) 100 else displayScalePercent
         val requestedResolutionDisplay = CarPlayDisplayScale.applyPercent(baseDisplay, requestedResolutionPercent)
         var resolutionDisplay = requestedResolutionDisplay
         val requestedPercent = uiScalePercent
@@ -3486,7 +3504,7 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         appendLog("CarPlay size=${CarPlayUiScale.label(uiScalePercent)} canvas=${scaledDisplay.widthPixels}x${scaledDisplay.heightPixels}")
-        val display = scaledDisplay.copy(
+        val display = if (dockModeEnabled) LynkDockLayout.display(scaledDisplay) else scaledDisplay.copy(
             safeArea = AirPlaySafeArea.toInsets(
                 mapping = AirPlayPersistence.loadSafeAreaRect(this, size.width, size.height),
                 activityWidthPixels = size.width,
@@ -3501,7 +3519,8 @@ class CarPlayHostActivity : ComponentActivity() {
             "base=${requestedResolutionDisplay.widthPixels}x${requestedResolutionDisplay.heightPixels} " +
             "candidate=${candidate.widthPixels}x${candidate.heightPixels} fps=$fps " +
             "codec=${if (hevcEnabled) "HEVC" else "H.264"} softwareHevc=$hevcSoftwareDecoderEnabled"
-        val effectiveSummary = "Display effective percent=$uiScalePercent resolution=${displayScalePercent}% " +
+        val effectiveSummary = "Display effective percent=$uiScalePercent resolution=${if (dockModeEnabled) 100 else displayScalePercent}% " +
+            "dock=$dockModeEnabled " +
             "canvas=${display.widthPixels}x${display.heightPixels} decision=${support.reason} " +
             "physical=${physical.widthMm}x${physical.heightMm}mm safeArea=${display.safeArea} " +
             "drawOutside=${display.safeAreaDrawOutside}"
@@ -3591,6 +3610,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
 
     private fun safeAreaSummary(): String {
+        if (dockModeEnabled) return getString(R.string.lynk_dock_active)
         val size = currentActivitySize() ?: return getString(R.string.safe_area_waiting_for_activity_size)
         val mapping = AirPlayPersistence.loadSafeAreaRect(this, size.width, size.height)
         return if (mapping == null) {
@@ -3608,6 +3628,10 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun openSafeAreaEditor() {
+        if (dockModeEnabled) {
+            android.widget.Toast.makeText(this, R.string.lynk_dock_active, android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         val size = currentActivitySize()
         if (size == null) {
             appendLog("Safe area editor is unavailable before display layout")
@@ -4576,10 +4600,11 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun applyFullscreenMode() {
+        val dockActive = dockWindow.apply(dockModeEnabled)
         val multiWindow = isMultiWindowActive()
-        val hideTop = hideTopBar && !multiWindow
-        val hideBottom = hideBottomBar && !multiWindow
-        WindowCompat.setDecorFitsSystemWindows(window, !(hideTop && hideBottom))
+        val hideTop = dockActive || (hideTopBar && !multiWindow)
+        val hideBottom = !dockActive && hideBottomBar && !multiWindow
+        WindowCompat.setDecorFitsSystemWindows(window, !dockActive && !(hideTop && hideBottom))
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (hideTop) {
             controller.hide(WindowInsetsCompat.Type.statusBars())

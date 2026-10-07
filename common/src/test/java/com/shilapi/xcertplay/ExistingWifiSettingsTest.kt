@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.Manifest
 import android.app.AlertDialog
 import android.os.Looper
 import android.widget.Button
@@ -21,6 +22,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
+import java.util.concurrent.ExecutorService
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], qualifiers = "en", manifest = Config.NONE)
@@ -91,6 +93,24 @@ class ExistingWifiSettingsTest {
         AirPlayPersistence.saveWirelessEnabled(app, false)
         CarPlayHostActivity::class.java.getDeclaredMethod("loadPersistedSettings").apply { isAccessible = true }.invoke(host)
         assertEquals(CarPlayTransport.WIRED, runtime().transport)
+    }
+
+    @Test @Config(sdk = [28])
+    fun ordinaryApi28ProfileRetainsManualHotspotLocationRequirement() {
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        try {
+            assertFalse(host.resources.getBoolean(com.shilapi.xcertplay.host.R.bool.config_simple_connection_flow))
+            CarPlayHostActivity::class.java.getDeclaredField("wirelessHotspotMode").apply { isAccessible = true }
+                .set(host, WirelessHotspotMode.MANUAL)
+            val permissions = CarPlayHostActivity::class.java.getDeclaredMethod("requiredWirelessPermissions")
+                .apply { isAccessible = true }.invoke(host) as List<*>
+            assertTrue(permissions.contains(Manifest.permission.ACCESS_FINE_LOCATION))
+            assertTrue(permissions.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
+        } finally {
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor"))
+                (CarPlayHostActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
+                    .get(host) as ExecutorService).shutdownNow()
+        }
     }
 
     private fun controls(): List<View> {

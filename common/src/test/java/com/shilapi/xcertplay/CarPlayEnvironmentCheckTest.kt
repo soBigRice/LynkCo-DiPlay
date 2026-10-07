@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -11,7 +12,7 @@ class CarPlayEnvironmentCheckTest {
         appleDevices = 0, usbPermission = null, wifi = true, bluetooth = true,
         bluetoothPermission = true, bluetoothEnabled = true, phonePaired = true,
         locationPermission = true, nearbyWifiPermission = true, locationEnabled = true,
-        automaticHotspot = true, automaticSupported = true, manualConfigured = false,
+        hotspotMode = WirelessHotspotMode.LOCAL_ONLY_HOTSPOT, automaticSupported = true, manualConfigured = false,
         systemHotspot = false, sessionPresent = false, sessionActive = false,
     )
     private fun report(facts: EnvironmentFacts = ready()) = CarPlayEnvironmentCheck.evaluate(facts, 1234)
@@ -56,7 +57,7 @@ class CarPlayEnvironmentCheckTest {
         assertEquals(EnvironmentAction.BLUETOOTH, report(ready().copy(bluetoothEnabled = false)).item("bluetooth_power").action)
     }
     @Test fun lynkHotspotSwitchIsNotProofOfReachableAccessPoint() {
-        val manual = ready().copy(automaticHotspot = false, manualConfigured = true, lynkProfile = true)
+        val manual = ready().copy(hotspotMode = WirelessHotspotMode.MANUAL, manualConfigured = true, lynkProfile = true)
         assertEquals(EnvironmentState.VERIFY, report(manual.copy(systemHotspot = true)).item("hotspot_enabled").state)
         assertEquals(EnvironmentState.ACTION, report(manual.copy(systemHotspot = false)).item("hotspot_enabled").state)
         assertEquals(EnvironmentState.VERIFY, report(manual.copy(systemHotspot = null)).item("hotspot_enabled").state)
@@ -64,11 +65,28 @@ class CarPlayEnvironmentCheckTest {
     }
 
     @Test fun manualHotspotDoesNotRequireLocationSwitchOrAutomaticApi() {
-        val report = report(ready().copy(automaticHotspot = false, manualConfigured = true,
+        val report = report(ready().copy(hotspotMode = WirelessHotspotMode.MANUAL, manualConfigured = true,
             locationEnabled = false, automaticSupported = false, systemHotspot = true))
         assertFalse(report.items.any { it.id == "location_switch" || it.id == "hotspot_api" })
         assertEquals(EnvironmentState.PASS, report.item("hotspot_config").state)
         assertEquals(EnvironmentState.VERIFY, report.state(EnvironmentGroup.WIRELESS))
+    }
+    @Test fun lynkApi28ManualHotspotDoesNotReportMissingLocationAsAConnectionBlocker() {
+        val report = report(ready().copy(hotspotMode = WirelessHotspotMode.MANUAL, manualConfigured = true,
+            lynkProfile = true, locationPermission = false, systemHotspot = true))
+        assertFalse(report.items.any { it.id == "location_permission" })
+        assertEquals(EnvironmentState.VERIFY, report.state(EnvironmentGroup.WIRELESS))
+    }
+    @Test fun locationExemptionIsLimitedToLynkApi28ManualWithoutGpsReporting() {
+        val manual = ready().copy(hotspotMode = WirelessHotspotMode.MANUAL, lynkProfile = true,
+            locationPermission = false)
+        for (facts in listOf(manual.copy(lynkProfile = false), manual.copy(api = 29),
+            manual.copy(hotspotMode = WirelessHotspotMode.LOCAL_ONLY_HOTSPOT),
+            manual.copy(hotspotMode = WirelessHotspotMode.WIFI_P2P),
+            manual.copy(hotspotMode = WirelessHotspotMode.EXISTING_WIFI),
+            manual.copy(locationReportingEnabled = true))) {
+            assertEquals(EnvironmentState.ACTION, report(facts).item("location_permission").state)
+        }
     }
     @Test fun automaticHotspotDoesNotRequireManuallyEnteredCredentials() {
         val report = report()
@@ -81,8 +99,11 @@ class CarPlayEnvironmentCheckTest {
         assertEquals(EnvironmentAction.CONNECTION, report.item("hotspot_conflict").action)
     }
     @Test fun newerAndroidChecksNearbyWifiInsteadOfLegacyLocationPermission() {
-        val report = report(ready().copy(api = 33, locationPermission = false, nearbyWifiPermission = false))
-        assertFalse(report.items.any { it.id == "location_permission" })
-        assertEquals(EnvironmentState.ACTION, report.item("nearby_wifi_permission").state)
+        for (reporting in listOf(false, true)) {
+            val report = report(ready().copy(api = 33, locationPermission = false,
+                nearbyWifiPermission = false, locationReportingEnabled = reporting))
+            assertFalse(report.items.any { it.id == "location_permission" })
+            assertEquals(EnvironmentState.ACTION, report.item("nearby_wifi_permission").state)
+        }
     }
 }

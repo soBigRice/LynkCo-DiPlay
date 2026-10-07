@@ -47,7 +47,7 @@ android {
         create("lynkDebug") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".lynk"
-            versionNameSuffix = "-lynk-osn2-test24"
+            versionNameSuffix = "-lynk-osn2-test25"
             matchingFallbacks += "debug"
         }
         release {
