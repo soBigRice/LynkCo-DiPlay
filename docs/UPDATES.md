@@ -97,9 +97,20 @@ test25 签名（最初来自本机 debug keystore），APK 本身关闭调试。
   提供 `LynkCo-CarPlay-0.2.12-r1.apk` 与 `SHA256SUMS.txt`。APK SHA-256：
   `b62984ed6c2d387c7037ae52b6331204eb7d83197043023cae4c89376741e040`；体积 38705622 bytes。
 - 发布后的 APK 实际下载校验在启用共享元数据前执行，Pages 部署后再核对公开页面与 JSON。中文/英文页面
-  已检查 1440px 与 390px 视口的下载链接、对应标签源码、校验显示和横向溢出。
+  中文已检查 1440px / 390px，英文已检查 390px 视口的下载链接、对应标签源码、校验显示和横向溢出。
   自动验证与下载可用不代表车机网络、浏览器/系统覆盖安装、方向盘、Dock 或无线已获实车验收。
 
 本地最终证据保存在 `.private/verification/lynk-r1/`；认证输入、Android 签名密钥、
 测试缓存与安装包不进入公共 Git。必要包保存在 `dist/`，临时浏览器/服务器和本轮生成输出
 在收尾清理。签名连续性和测试目录陷阱仅维护于 BUILD.md，不另建重复记录。
+
+最终公开核验：GitHub APK 实际下载 SHA-256 与本地最终包一致；正常 URL 下的中英文
+线上页面及 `updates/latest.json` 与已提交内容一致，线上中文桌面无横向溢出或缺失图片。
+Pages 的部署源码为 `f6810c1`，
+[Pages Run 37905400857](https://github.com/soBigRice/LynkCo-DiPlay/actions/runs/37905400857) 成功；
+[Android checks Run 37905261328](https://github.com/soBigRice/LynkCo-DiPlay/actions/runs/37905261328)
+对发布源码 `b8308bf` 的全量测试、Lint 和不含认证的源码构建全部通过，远端确认执行
+41 项 Release 用例。两个工作流本轮通过 `workflow_dispatch` 显式触发。最终运行代码
+与受检发布标签一致，后续提交仅更新网站和核验说明。测试浏览器、预览服务器和单次
+Gradle 进程均已退出；本轮 Release 生成目录、临时下载与浏览器输出已清理，必要安装包、
+签名/下载核验和 JUnit/Lint/截图证据保留在忽略目录。
