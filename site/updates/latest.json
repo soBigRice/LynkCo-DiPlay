@@ -1,5 +1,14 @@
 {
   "schemaVersion": 1,
   "packageName": "com.shihab.diplay.lynk",
-  "release": null
+  "release": {
+    "versionCode": 43,
+    "versionName": "0.2.12-lynk-osn2-r1",
+    "minSdk": 28,
+    "downloadUrl": "https://github.com/soBigRice/LynkCo-DiPlay/releases/download/lynk-v0.2.12-r1/LynkCo-CarPlay-0.2.12-r1.apk",
+    "releaseUrl": "https://github.com/soBigRice/LynkCo-DiPlay/releases/tag/lynk-v0.2.12-r1",
+    "notes": "首个公开领克 Release 包，关闭调试并保留原包名与签名，可覆盖升级。包含有线 USB、音频与资源生命周期修复、媒体控制、诊断与可选 Dock 空间开关。最低 Android 9；无线仍在调试，当前不能正常使用。请使用车机 USB-A 数据口，安装前阅读风险声明。",
+    "notesEn": "First public Lynk Release build, with debugging disabled and the existing package/signature retained for in-place updates. Includes wired USB, audio and resource lifecycle fixes, media controls, diagnostics and optional Dock space. Android 9+. Wireless currently does not work properly and remains under debugging. Use the head unit's USB-A data port and read the risk notice before installing.",
+    "sha256": "b62984ed6c2d387c7037ae52b6331204eb7d83197043023cae4c89376741e040"
+  }
 }

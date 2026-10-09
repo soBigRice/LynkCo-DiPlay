@@ -2,6 +2,7 @@
 """Build the Lynk project's static Pages site and validate its shared update metadata."""
 from html import escape as e
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -27,6 +28,10 @@ def validate_manifest(data):
         raise ValueError('Invalid versionName')
     if not isinstance(release.get('notes'), str) or len(release['notes']) > 8000:
         raise ValueError('Invalid notes')
+    if 'notesEn' in release and (not isinstance(release['notesEn'], str) or len(release['notesEn']) > 8000):
+        raise ValueError('Invalid English notes')
+    if 'sha256' in release and (not isinstance(release['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', release['sha256'])):
+        raise ValueError('Invalid APK SHA-256')
     for key, prefix in [('downloadUrl', '/soBigRice/LynkCo-DiPlay/releases/download/'),
                         ('releaseUrl', '/soBigRice/LynkCo-DiPlay/releases/tag/')]:
         url = urlsplit(release[key])
@@ -50,7 +55,10 @@ def build():
         primary = release['downloadUrl'] if release else SOURCE
         primary_text = d['download'] if release else d['sourceDownload']
         release_text = release['versionName'] if release else d['unpublished']
-        notes = release['notes'] if release else d['releaseHint']
+        notes = (release.get('notesEn', release['notes']) if lang == 'en' else release['notes']) if release else d['releaseHint']
+        release_url = release['releaseUrl'] if release else REPO + '/releases'
+        source_url = REPO + '/archive/refs/tags/' + urlsplit(release_url).path.split('/releases/tag/', 1)[1] + '.zip' if release else SOURCE
+        checksum = '<p class="checksum">APK SHA-256<br><code>' + e(release['sha256']) + '</code></p>' if release and 'sha256' in release else ''
         (folder / 'index.html').write_text(f'''<!doctype html>
 <html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LynkCo CarPlay · {e(d['tag'])}</title><meta name="description" content="{e(d['intro'])}"><meta name="theme-color" content="#121519">
@@ -65,7 +73,7 @@ def build():
 <aside class="connection-notice" aria-labelledby="connection-status"><strong id="connection-status">{e(d['connectionTitle'])}</strong><p>{e(d['wiredNotice'])}</p><p>{e(d['wirelessNotice'])}</p></aside>
 <div class="actions"><a class="button" href="{primary}">{e(primary_text)} <span aria-hidden="true">↓</span></a><a class="button secondary" href="#install">{e(d['install'])}</a></div><p class="note">{e(d['scope'])}</p></section>
 <figure class="product"><a href="{prefix}assets/home.png"><img src="{prefix}assets/home.png" width="2560" height="1600" alt="{e(d['screenshotAlt'])}" fetchpriority="high"></a><figcaption>{e(d['caption'])}</figcaption></figure>
-<section class="download-section" id="download"><div><h2>{e(d['downloads'])}</h2><p class="version">{e(release_text)}</p><p>{e(notes).replace(chr(10), '<br>')}</p><p class="agreement-note">{e(d['downloadConsent'])} <a href="#disclaimer">{e(d['disclaimerLink'])} ↓</a></p></div><div class="download-actions"><a class="button" href="{primary}">{e(primary_text)} <span aria-hidden="true">↓</span></a><a href="{REPO}/releases">{e(d['releasePage'])} ↗</a></div></section>
+<section class="download-section" id="download"><div><h2>{e(d['downloads'])}</h2><p class="version">{e(release_text)}</p><p>{e(notes).replace(chr(10), '<br>')}</p>{checksum}<p class="agreement-note">{e(d['downloadConsent'])} <a href="#disclaimer">{e(d['disclaimerLink'])} ↓</a></p></div><div class="download-actions"><a class="button" href="{primary}">{e(primary_text)} <span aria-hidden="true">↓</span></a><a href="{release_url}">{e(d['releasePage'])} ↗</a><a href="{source_url}">{e(d['sourceDownload'])} ↗</a></div></section>
 <section class="disclaimer card" id="disclaimer" aria-labelledby="disclaimer-title"><h2 id="disclaimer-title">{e(d['disclaimerTitle'])}</h2><p>{e(d['disclaimerIntro'])}</p><dl>{''.join('<div><dt>' + e(risk['title']) + '</dt><dd>' + e(risk['text']) + '</dd></div>' for risk in d['risks'])}</dl><p class="disclaimer-terms">{e(d['disclaimerTerms'])}</p><p class="agreement-note">{e(d['downloadConsent'])}</p><nav><a href="{REPO}/blob/main/docs/licenses/DiAuto-AGPL-3.0.txt">AGPL-3.0 §15–17</a><a href="{REPO}/blob/main/docs/PRIVACY.md">{e(d['privacy'])}</a><a href="{REPO}/blob/main/docs/THIRD_PARTY_NOTICES.md">{e(d['notices'])}</a></nav></section>
 <div class="grid"><section class="card" id="install"><h2>{e(d['setup'])}</h2><ol>{''.join('<li>' + e(step) + '</li>' for step in d['steps'])}</ol><p class="note">{e(d['updateHint'])}</p><a href="{REPO}/blob/main/docs/LYNK_OS_N.md">{e(d['guide'])} ↗</a></section>
 <section class="card"><h2>{e(d['featuresTitle'])}</h2><ul>{''.join('<li>' + e(item) + '</li>' for item in d['features'])}</ul><h3>{e(d['compatibility'])}</h3><p>{e(d['compatibilityText'])}</p></section></div>

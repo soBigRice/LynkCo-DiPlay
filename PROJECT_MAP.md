@@ -1,13 +1,13 @@
 # LynkCoCarPlay 实现入口
 
 整合基线：DiPlay 0.2.12 `2fc876e578eba3905a5b873e3c2dbd74f498433a`；领克旧适配快照 `6d8486a`（test13a）。test14 整合、test15 双入口和 test16 音源交接/诊断和 test17 资源生命周期见适配文档末尾。
-核对日期：2026-10-07。test14 已整合上游 0.2.12 并同步 fork/main；test15 已实现首页无线/有线双入口和配对复用；test16 根据 10 月 5 日实车日志处理有线蓝牙媒体交接、统一领克音频焦点，并补齐实际输出/呈现/热点诊断。具体验证边界见适配文档末尾。保留领克配色、设置、环境检测、署名、自动临时热点及 USB/音频适配。2026-10-06 用户确认 test17 有线可以正常使用、流畅度尚可；无线仍待实车验证。模拟器无法证明真实 CarPlay 认证、无线投屏或行车稳定性。
+核对日期：2026-10-09。test14 已整合上游 0.2.12 并同步 fork/main；test15 已实现首页无线/有线双入口和配对复用；test16 根据 10 月 5 日实车日志处理有线蓝牙媒体交接、统一领克音频焦点，并补齐实际输出/呈现/热点诊断。具体验证边界见适配文档末尾。保留领克配色、设置、环境检测、署名、自动临时热点及 USB/音频适配。2026-10-06 用户确认 test17 有线可以正常使用、流畅度尚可；无线仍待实车验证。模拟器无法证明真实 CarPlay 认证、无线投屏或行车稳定性。
 
 - [领克适配、构建与实车验收](docs/LYNK_OS_N.md)：2023 款领克 03，用户提供的 OS N 2.0 / Android 9，iPhone 14 Pro / iOS 27。
 - 当前实现和边界见适配文档「test17～test25」：test17 有线使用和流畅度曾获用户确认；后续按实车新日志选择性修复和增加诊断。test24 完成标准媒体控制接入与车机信息读取，test25 增加 Dock 显示范围开关；方向盘/原生卡片、无线和 Dock 实际效果仍待实车验证，自动验证结果及验收范围以文末记录为准。
-- [官网与应用更新](docs/UPDATES.md)：Pages 静态站与共享公开元数据；`DiPlayActivity.checkAppUpdates` → `LynkUpdateRequest` → `LynkAppUpdates.parse`，仅领克包启用，当前完整 APK 暂不发布。
+- [官网与应用更新](docs/UPDATES.md)：Pages 静态站与共享公开元数据；`DiPlayActivity.checkAppUpdates` → `LynkUpdateRequest` → `LynkAppUpdates.parse`，仅领克包启用，2026-10-09 按用户授权公开 R1 非调试 Release APK；GitHub 资产核验后更新共享 JSON，实车验证边界保留。
 - 水果互联互操作核对：Android9 启动包含自动本机 ADB 尝试，不能由“未点授权按钮”推断未用 ADB；RFCOMM / iAP2 / Bonjour 协议入口与本项目相同。领克 API28 MANUAL 已移除额外定位门禁，位置上报独立；证据、系统修改边界与实车待验阶段见适配文档「水果互联实际无线链路与本项目对照」。
-- `mobile/build.gradle.kts`：普通 Android 车机 APK；`lynkDebug` 独立包名与资源覆盖。不使用面向 Android Automotive OS 的 `automotive` target。
+- `mobile/build.gradle.kts`：普通 Android 车机 APK；`lynkDebug` 与 `lynkRelease` 共用领克独立包名与资源覆盖；`assembleLynkStandaloneRelease` 要求显式认证和签名输入。不使用面向 Android Automotive OS 的 `automotive` target。
 - `DiPlayActivity.connectionHome/about`：首页和关于页注明基于 DiPlay 修改，保留上游项目链接及许可证声明；后续视觉调整不得移除署名。
 - `common/.../DiPlayActivity.kt`：首页、热点配置、配对设备选择、可选车机蓝牙地址补充（留空恢复自动）、诊断导出；`CarPlayHostActivity.kt`：画面、Surface、状态订阅和用户命令；`CarPlaySessionPlan`：不可变连接输入；`CarPlayBackgroundSession`：会话、日志、重连、关闭及前台服务 epoch。
 - `common/.../LynkPanelStyle.kt`：领克面板共用的深灰/冰蓝、文字和按钮样式，普通 target 继续原主题；`DiPlayActivity.renderLynkPanel` 提供首页双入口和二级设置；首页宽屏并列、窄屏纵排，设置按 `LynkSettingsGroup` 筛选既有 section，保留原保存回调。
@@ -66,3 +66,5 @@
 
 - `mobile/src/lynkDebug/res/raw/ic_car_home.png`：test18 领克返回车机图标，覆盖 common 默认 BYD；Host → AirPlayConfig → `/info` 的 `oemIcons.imageData`，自定义图标/名称优先级不变。素材来源与验证见适配文档 test18。
 - `mobile/src/lynkDebug/AndroidManifest.xml` / `res/mipmap-anydpi-v26/ic_lynk_launcher.xml`：test19 桌面自适应领克图标；与 CarPlay 返回图标独立。`values`、`values-zh-rCN`、`values-uk` 同时覆盖 `app_name` 为 `Lynk&Co_CarPlay`，防止库的语言资源重新显示 DiPlay；连接通知读取同一资源，原版名称及改编署名保留。
+
+- [R1 公开发布说明](docs/RELEASE-NOTES-LYNK-R1.md)：`lynk-v0.2.12-r1` / code 43；原包名与签名、关闭调试，网站和 App 使用相同更新元数据。构建/认证/签名边界及 AGP 9 Kotlin 测试目录经验见 [BUILD.md](docs/BUILD.md)，下载与发布核验见 [UPDATES.md](docs/UPDATES.md)。

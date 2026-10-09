@@ -1,7 +1,9 @@
 # 官网与应用更新
 
-核对日期：2026-10-06。官网为 <https://soBigRice.github.io/LynkCo-DiPlay/>，仓库为
-<https://github.com/soBigRice/LynkCo-DiPlay>。用户决定先公开官网与源码，完整 APK 暂不发布。
+核对日期：2026-10-09。官网为 <https://soBigRice.github.io/LynkCo-DiPlay/>，仓库为
+<https://github.com/soBigRice/LynkCo-DiPlay>。用户本轮明确要求公开生产安装包，替代此前
+仅公开官网与源码的决定。首个公开包为 R1 / code 43；APK 以非调试 Release 构建提供，
+项目仍属实验性质，实车验收范围没有扩大。
 中英文官网的“开源与致谢”和页脚均提供 [喵总官网](https://miaozong.cc/) 链接。
 
 ## 当前行为与边界
@@ -22,8 +24,9 @@
   不将网页提示当作免责必然生效的证据，也不改变开源许可证授予的权利。
 - `.github/workflows/pages.yml` 在 `main` 的网站内容改变或手动触发时构建并部署 `site/`。
   APK、认证素材、本地配置和构建输出不属于 Pages 发布目录，也不进入 Git。
-- 官网和 App 共用 `site/updates/latest.json`。当前 `release: null`，网站提供源码 ZIP
-  和版本发布页，App 显示“暂无公开 APK”，不将此状态说成“当前已是最新版本”。
+- 官网和 App 共用 `site/updates/latest.json`。R1 元数据包含 code 43、版本名、最低 SDK、
+  实际 GitHub Release/APK 地址、中文/英文说明及 APK SHA-256。官网提供 APK、校验值、
+  对应标签源码及发布页；code 42 及此前的领克包可发现更新，code 43 显示当前版本。
 - 仅包名 `com.shihab.diplay.lynk` 启用 `LynkAppUpdates`。普通 DiPlay、HUD 测试包和
   Automotive target 不检查这个更新源。
 - `DiPlayActivity.onStart` 仅在首页空闲、未运行会话、未准备无线且未启用自动连接时按每天
@@ -38,32 +41,20 @@
 - 发现更新后，用户点击“下载新版”打开浏览器；安装由系统与用户处理，不静默安装，不新增
   安装权限。覆盖安装仍需相同包名与签名；若车机没有浏览器，现有回退提示显示链接。
 
-## 将来发布 APK
+## 发布与维护 APK
 
-完整 APK 含有可提取的实验认证素材。**当前用户未授权公开完整 APK**；只有重新得到明确
-授权后才能上传。Android 签名私钥永不公开，保持现有安装签名，否则无法覆盖更新。
+完整 APK 含有可提取的实验认证素材。2026-10-09 用户已明确授权公开完整 APK，
+官网与 Release 保留实验认证及使用风险说明。Android 签名私钥永不公开；R1 保持已有
+test25 签名（最初来自本机 debug keystore），APK 本身关闭调试。改签名会影响覆盖更新，
+需单独决策。领克 Release 构建、显式认证/签名输入与 source-only CI 边界见 [BUILD.md](BUILD.md)。
 
 1. 对最终领克 APK 核验包名、唯一递增的 `versionCode`、`versionName`、minSdk 和签名；
    记录 SHA-256，完成适用验证。不要拿上游 DiPlay 或普通源码构建当领克完整安装包。
 2. 将已授权 APK 上传到本仓库的 GitHub Release，核验公开资产可下载且散列一致。
-3. 最后把 `site/updates/latest.json` 的 `release` 设置为实际元数据，再部署 Pages。例如：
+3. 最后把 `site/updates/latest.json` 的 `release` 设置为实际元数据，再部署 Pages。完整字段
+   以 [公开版本元数据](../site/updates/latest.json) 为准；官网显示名/下载和 App 检查均来自它。
+   `notesEn` 与 `sha256` 由网站构建校验和展示，App 忽略这两个新增展示字段；英文网站采用英文说明。
 
-```json
-{
-  "schemaVersion": 1,
-  "packageName": "com.shihab.diplay.lynk",
-  "release": {
-    "versionCode": 38,
-    "versionName": "0.2.12-lynk-osn2-test20",
-    "minSdk": 28,
-    "downloadUrl": "https://github.com/soBigRice/LynkCo-DiPlay/releases/download/lynk-test20/LynkCo-CarPlay-test20.apk",
-    "releaseUrl": "https://github.com/soBigRice/LynkCo-DiPlay/releases/tag/lynk-test20",
-    "notes": "填写实际变更和验证范围"
-  }
-}
-```
-
-上例仅解释结构，不表示该版本或 APK 已发布。官网显示名与下载、App 检查均来自该元数据。
 暂时撤下更新可把 `release` 恢复为 null 并重新部署；不删除已有安装或修改用户设置。
 
 ## 验证入口
@@ -87,7 +78,28 @@
 下载声明的提示与责任限制核对：[《民法典》§496–497、§506](https://www.court.gov.cn/zixun/xiangqing/233181.html)
 （2026-10-06，最高人民法院公布文本）。
 
-本轮自动验证：仅本次改动与 `e8f4caa` 基线组成的隔离源码中，16 项更新/设置回归通过，
+2026-10-06 历史自动验证：仅当时改动与 `e8f4caa` 基线组成的隔离源码中，16 项更新/设置回归通过，
 `lintLynkDebug`、`lintDebug`、`assembleLynkDebug` 通过；构建包不含认证素材，仅用于源码验证，
 未作为完整 APK 发布。官网中英文、1440px 桌面与 390px 窄屏已实际渲染，未见横向溢出或缺失图片。
 车辆网络、浏览器下载与安装尚未实车验证。
+
+## 2026-10-09：R1 公开发布
+
+- 源码标签 `lynk-v0.2.12-r1`，构建源码 `b8308bf432dac71f42e7850bc2217599acadfede`。
+  包为 `0.2.12-lynk-osn2-r1` / code 43 / minSdk 28；Release、关闭调试，原包名与签名连续。
+- 本地 1,533 项自动回归通过、1 项原有跳过；包含新 Release 和原 lynkDebug 各 41 项。
+  Release Lint 0 errors / 12 既有 warnings。已验证缺失签名输入会被 standalone 任务拒绝，
+  source-only Release 构建是 unsigned 且不含两份实验认证输入。CI 增加 Release 构建/检查，
+  并要求 Release 用例数量大于零，避免 AGP 9 Kotlin 目录配置导致 NO-SOURCE 假通过。
+- 最终 APK 两份认证输入、原签名和 CarPlay 返回图标与 test25 相同；13 个 native library
+  的打包清单一致，领克资源开关启用、BYD 集成关闭，无 Android keystore 打包。
+- [GitHub Release](https://github.com/soBigRice/LynkCo-DiPlay/releases/tag/lynk-v0.2.12-r1)
+  提供 `LynkCo-CarPlay-0.2.12-r1.apk` 与 `SHA256SUMS.txt`。APK SHA-256：
+  `b62984ed6c2d387c7037ae52b6331204eb7d83197043023cae4c89376741e040`；体积 38705622 bytes。
+- 发布后的 APK 实际下载校验在启用共享元数据前执行，Pages 部署后再核对公开页面与 JSON。中文/英文页面
+  已检查 1440px 与 390px 视口的下载链接、对应标签源码、校验显示和横向溢出。
+  自动验证与下载可用不代表车机网络、浏览器/系统覆盖安装、方向盘、Dock 或无线已获实车验收。
+
+本地最终证据保存在 `.private/verification/lynk-r1/`；认证输入、Android 签名密钥、
+测试缓存与安装包不进入公共 Git。必要包保存在 `dist/`，临时浏览器/服务器和本轮生成输出
+在收尾清理。签名连续性和测试目录陷阱仅维护于 BUILD.md，不另建重复记录。
