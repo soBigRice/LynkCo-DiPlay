@@ -1,4 +1,5 @@
 import com.android.build.api.variant.HostTestBuilder
+import java.io.File
 
 plugins {
     alias(libs.plugins.android.application)
@@ -19,7 +20,7 @@ android {
         applicationId = "com.shihab.diplay"
         minSdk = 28
         targetSdk = 37
-        versionCode = 42
+        versionCode = 43
         versionName = "0.2.12"
 
     }
@@ -56,7 +57,25 @@ android {
             }
             signingConfig = signingConfigs.getByName("release")
         }
+        create("lynkRelease") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".lynk"
+            versionNameSuffix = "-lynk-osn2-r1"
+            isDebuggable = false
+            matchingFallbacks += "release"
+            // Public CI can validate an unsigned, identity-free source build.
+            signingConfig = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+                ?.let { signingConfigs.getByName("release") }
+        }
     }
+    // Both Lynk builds use the same platform profile and branding. Release must not
+    // silently inherit the ordinary DiPlay resources when debug is disabled.
+    sourceSets.getByName("lynkRelease") {
+        manifest.srcFile("src/lynkDebug/AndroidManifest.xml")
+        res.directories.add("src/lynkDebug/res")
+    }
+    // AGP 9 built-in Kotlin ignores additional directories registered as Java.
+    sourceSets.getByName("testLynkRelease").kotlin.directories.add("src/testLynkDebug/java")
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -70,8 +89,10 @@ android {
 }
 
 // AGP 9 enables host tests only for its tested build type by default.
-androidComponents.beforeVariants(androidComponents.selector().withBuildType("lynkDebug")) {
-    it.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
+for (buildType in listOf("lynkDebug", "lynkRelease")) {
+    androidComponents.beforeVariants(androidComponents.selector().withBuildType(buildType)) {
+        it.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
+    }
 }
 
 dependencies {
@@ -140,4 +161,22 @@ tasks.register("assembleLynkStandaloneDebug") {
     group = "build"
     description = "Build the LYNK OS N car-test APK with explicitly provisioned authentication."
     dependsOn(verifyStandaloneAuthentication, "assembleLynkDebug")
+}
+val verifyLynkReleaseSigning by tasks.registering {
+    group = "verification"
+    description = "Require explicit Android signing inputs for a standalone Lynk release."
+    val values = listOf("ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD",
+        "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD").map { providers.environmentVariable(it) }
+    doLast {
+        check(values.all { it.orNull?.isNotBlank() == true }) {
+            "Standalone release builds require all four ANDROID_KEYSTORE/KEY signing inputs."
+        }
+        check(File(values.first().get()).isFile) { "Android signing keystore is missing" }
+    }
+}
+tasks.named("preBuild") { mustRunAfter(verifyLynkReleaseSigning) }
+tasks.register("assembleLynkStandaloneRelease") {
+    group = "build"
+    description = "Build a non-debuggable Lynk release APK with explicitly provisioned authentication."
+    dependsOn(verifyStandaloneAuthentication, verifyLynkReleaseSigning, "assembleLynkRelease")
 }

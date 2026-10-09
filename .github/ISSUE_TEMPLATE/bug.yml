@@ -7,11 +7,11 @@ body:
       value: 'Test while parked. Reports are public: review diagnostic files and remove personal information before attaching them. Never post credentials.'
   - type: input
     id: version
-    attributes: {label: DiPlay version, placeholder: '0.2.12'}
+    attributes: {label: LynkCo CarPlay version, placeholder: '0.2.12-lynk-osn2-r1 (code 43)'}
     validations: {required: true}
   - type: input
     id: car
-    attributes: {label: Car and head-unit model, placeholder: 'Car model/year, head unit, DiLink/Android version and exact firmware'}
+    attributes: {label: Car and head-unit model, placeholder: 'Car model/year, head unit, OS N/Android version and exact firmware'}
     validations: {required: true}
   - type: input
     id: phone
@@ -21,7 +21,7 @@ body:
     id: transport
     attributes:
       label: Connection
-      options: ['Wireless: built-in car hotspot', 'Wireless: Wi-Fi Direct', 'Wireless: Existing Wi-Fi / Same LAN', USB, Both, 'Other / unsure']
+      options: [USB, 'Wireless: automatic temporary hotspot (experimental)', 'Wireless: built-in car hotspot (experimental)', 'Wireless: Wi-Fi Direct', 'Wireless: Existing Wi-Fi / Same LAN', Both, 'Other / unsure']
     validations: {required: true}
   - type: textarea
     id: reproduce
@@ -33,4 +33,4 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostic report or recording
-      description: 'Update and reproduce on 0.2.12, then Settings → Diagnostics → Save diagnostic report. Android 10+ normally saves to Downloads/DiPlay; Android 9 uses a document picker. If storage is unavailable, use View report or Share in the confirmation. Review the text before attaching it and never include your hotspot password. Include the approximate failure time.'
+      description: 'Update to the latest Lynk release and reproduce while parked, then Settings → Support → Diagnostics → Save diagnostic report. Android 9 provides View/Share for the locally saved report; Android 10+ normally uses Downloads. Include the approximate failure time. Review the text before attaching it and never include your hotspot password or personal information. Wireless is still experimental.'

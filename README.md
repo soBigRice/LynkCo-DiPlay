@@ -2,13 +2,13 @@
 
 An independent Lynk OS N 2.0 / Android 9 adaptation of [shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay), integrated with upstream **0.2.12**. Original author and contributor credits are retained. Lynk package: `com.shihab.diplay.lynk`.
 
-The adaptation adds a Lynk interface, a read-only environment check, combined USB/wireless diagnostic export, Android 9 USB recovery, and temporary hotspot/Bluetooth lifecycle handling. The user confirmed working wired connectivity and acceptable smoothness with test17; wireless still needs vehicle validation. This is not an official Lynk, upstream DiPlay or Apple-certified product.
+The adaptation adds a Lynk interface, a read-only environment check, combined USB/wireless diagnostic export, Android 9 USB recovery, and temporary hotspot/Bluetooth lifecycle handling. The user confirmed working wired connectivity and acceptable smoothness with test17; wireless currently does not work properly and remains under debugging. This is not an official Lynk, upstream DiPlay or Apple-certified product.
 
-This public repository contains source only: no authentication private keys, certificates or ready-to-connect APK. See the [Chinese fork guide](README.zh-CN.md), [build and validation notes](docs/LYNK_OS_N.md), and [code map](PROJECT_MAP.md).
+The Git source tree excludes authentication material and Android signing keys. The complete **R1 Release APK** is distributed separately through [Lynk releases](https://github.com/soBigRice/LynkCo-DiPlay/releases/tag/lynk-v0.2.12-r1), with SHA-256 checksums. It includes extractable experimental runtime authentication material; it is not Apple certification. See the [Chinese fork guide](README.zh-CN.md), [release packaging](docs/BUILD.md), [build and validation notes](docs/LYNK_OS_N.md), and [code map](PROJECT_MAP.md).
 
 [Project website](https://soBigRice.github.io/LynkCo-DiPlay/) · [Download source](https://github.com/soBigRice/LynkCo-DiPlay/archive/refs/heads/main.zip) · [Lynk releases](https://github.com/soBigRice/LynkCo-DiPlay/releases) · [Website and app update behavior](docs/UPDATES.md)
 
-The website and source are public; a complete APK is not published yet. The Lynk app includes automatic and manual version checks under Settings → Support → App updates.
+**R1: `0.2.12-lynk-osn2-r1` / code 43 / Android 9+.** Install on the head unit, using the car's USB-A data port for wired CarPlay; the target vehicle's USB-C port is charging-only. R1 keeps the existing Lynk package and signature for in-place updates. The app includes automatic and manual version checks under Settings → Support → App updates. This remains an experimental community project; read the [website's risk notice](https://soBigRice.github.io/LynkCo-DiPlay/#disclaimer) before installing. See [R1 release notes](docs/RELEASE-NOTES-LYNK-R1.md) for changes and validation limits.
 
 The upstream 0.2.12 documentation follows. Its BYD test results do not establish Lynk compatibility.
 
